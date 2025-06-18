@@ -3690,7 +3690,20 @@ func TestStaticCredential(t *testing.T) {
 		{
 			name:     "Matched credential for docker.io",
 			registry: "docker.io",
-			target:   "registry-1.docker.io",
+			target:   "https://index.docker.io/v1/",
+			cred: Credential{
+				Username: "username",
+				Password: "password",
+			},
+			want: Credential{
+				Username: "username",
+				Password: "password",
+			},
+		},
+		{
+			name:     "Matched credential for registry-1.docker.io",
+			registry: "registry-1.docker.io",
+			target:   "https://index.docker.io/v1/",
 			cred: Credential{
 				Username: "username",
 				Password: "password",

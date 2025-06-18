@@ -67,11 +67,9 @@ type CredentialFunc func(ctx context.Context, hostport string) (Credential, erro
 
 // StaticCredential specifies static credentials for the given host.
 func StaticCredential(registry string, cred Credential) CredentialFunc {
-	if registry == "docker.io" {
-		// it is expected that traffic targeting "docker.io" will be redirected
-		// to "registry-1.docker.io"
-		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
-		registry = "registry-1.docker.io"
+	if registry == "docker.io" ||
+		registry == "registry-1.docker.io" {
+		registry = "https://index.docker.io/v1/"
 	}
 	return func(_ context.Context, hostport string) (Credential, error) {
 		if hostport == registry {
