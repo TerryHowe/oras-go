@@ -197,6 +197,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+token)
 			}
+		default:
+			panic("unhandled default case")
 		}
 	}
 
@@ -213,7 +215,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	scheme, params := parseChallenge(challenge)
 	switch scheme {
 	case SchemeBasic:
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
 			return c.fetchBasicAuth(ctx, host)
@@ -225,7 +227,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		req = originalReq.Clone(ctx)
 		req.Header.Set("Authorization", "Basic "+token)
 	case SchemeBearer:
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		scopes := GetAllScopesForHost(ctx, host)
 		if paramScope := params["scope"]; paramScope != "" {
@@ -251,7 +253,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				if resp.StatusCode != http.StatusUnauthorized {
 					return resp, nil
 				}
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 		}
 
@@ -335,7 +337,7 @@ func (c *Client) fetchDistributionToken(ctx context.Context, realm, service stri
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
@@ -395,7 +397,7 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}

@@ -39,3 +39,6 @@ dist/
 vendor/
 _dist/
 .cover
+
+# AI
+CLAUDE.md
