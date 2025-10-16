@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"oras.land/oras-go/v2/registry/remote/credentials"
 	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
@@ -99,13 +100,13 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 	}
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -180,13 +181,13 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	}
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -289,13 +290,13 @@ func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				AccessToken: accessToken,
 			}, nil
 		},
@@ -376,13 +377,13 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				AccessToken: accessToken,
 			}, nil
 		},
@@ -484,7 +485,7 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			AccessToken: accessToken1,
 		}),
 		Cache: NewCache(),
@@ -519,7 +520,7 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			AccessToken: accessToken2,
 		}),
 		Cache: NewCache(),
@@ -608,7 +609,7 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client1.Credential = StaticCredential(uri1.Host, Credential{
+	client1.Credential = credentials.StaticCredential(uri1.Host, credentials.Credential{
 		AccessToken: accessToken1,
 	})
 	resp1, err = client1.Do(req1)
@@ -630,7 +631,7 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client2.Credential = StaticCredential(uri2.Host, Credential{
+	client2.Credential = credentials.StaticCredential(uri2.Host, credentials.Credential{
 		AccessToken: accessToken2,
 	})
 	resp2, err = client2.Do(req2)
@@ -713,13 +714,13 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -839,13 +840,13 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -988,7 +989,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			Username: username1,
 			Password: password1,
 		}),
@@ -1058,7 +1059,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			Username: username2,
 			Password: password2,
 		}),
@@ -1164,7 +1165,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client1.Credential = StaticCredential(uri1.Host, Credential{
+	client1.Credential = credentials.StaticCredential(uri1.Host, credentials.Credential{
 		Username: username1,
 		Password: password1,
 	})
@@ -1193,7 +1194,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client2.Credential = StaticCredential(uri2.Host, Credential{
+	client2.Credential = credentials.StaticCredential(uri2.Host, credentials.Credential{
 		Username: username2,
 		Password: password2,
 	})
@@ -1300,13 +1301,13 @@ func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -1447,13 +1448,13 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -1617,7 +1618,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			Username: username1,
 			Password: password1,
 		}),
@@ -1707,7 +1708,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			Username: username2,
 			Password: password2,
 		}),
@@ -1812,7 +1813,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client1.Credential = StaticCredential(uri1.Host, Credential{
+	client1.Credential = credentials.StaticCredential(uri1.Host, credentials.Credential{
 		Username: username1,
 		Password: password1,
 	})
@@ -1840,7 +1841,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client2.Credential = StaticCredential(uri2.Host, Credential{
+	client2.Credential = credentials.StaticCredential(uri2.Host, credentials.Credential{
 		Username: username2,
 		Password: password2,
 	})
@@ -1941,13 +1942,13 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				RefreshToken: refreshToken,
 			}, nil
 		},
@@ -2079,13 +2080,13 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				RefreshToken: refreshToken,
 			}, nil
 		},
@@ -2240,7 +2241,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			RefreshToken: refreshToken1,
 		}),
 		Cache: NewCache(),
@@ -2323,7 +2324,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			RefreshToken: refreshToken2,
 		}),
 		Cache: NewCache(),
@@ -2426,7 +2427,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client1.Credential = StaticCredential(uri1.Host, Credential{
+	client1.Credential = credentials.StaticCredential(uri1.Host, credentials.Credential{
 		RefreshToken: refreshToken1,
 	})
 	resp1, err = client1.Do(req1)
@@ -2452,7 +2453,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	client2.Credential = StaticCredential(uri2.Host, Credential{
+	client2.Credential = credentials.StaticCredential(uri2.Host, credentials.Credential{
 		RefreshToken: refreshToken2,
 	})
 	resp2, err = client2.Do(req2)
@@ -2552,13 +2553,13 @@ func TestClient_Do_Token_Expire(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				RefreshToken: refreshToken,
 			}, nil
 		},
@@ -2690,7 +2691,7 @@ func TestClient_Do_Token_Expire_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			RefreshToken: refreshToken1,
 		}),
 		Cache: NewCache(),
@@ -2772,7 +2773,7 @@ func TestClient_Do_Token_Expire_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			RefreshToken: refreshToken2,
 		}),
 		Cache: NewCache(),
@@ -2958,13 +2959,13 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -3109,7 +3110,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 	}
 	service1 = uri1.Host
 	client1 := &Client{
-		Credential: StaticCredential(uri1.Host, Credential{
+		Credential: credentials.StaticCredential(uri1.Host, credentials.Credential{
 			Username: username1,
 			Password: password1,
 		}),
@@ -3203,7 +3204,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 	}
 	service2 = uri2.Host
 	client2 := &Client{
-		Credential: StaticCredential(uri2.Host, Credential{
+		Credential: credentials.StaticCredential(uri2.Host, credentials.Credential{
 			Username: username2,
 			Password: password2,
 		}),
@@ -3337,13 +3338,13 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 	}
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: "bad credential",
 			}, nil
@@ -3422,13 +3423,13 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: "bad credential",
 			}, nil
@@ -3606,13 +3607,13 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
 			if reg != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
-				return EmptyCredential, err
+				return credentials.EmptyCredential, err
 			}
-			return Credential{
+			return credentials.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -3671,18 +3672,18 @@ func TestStaticCredential(t *testing.T) {
 		name     string
 		registry string
 		target   string
-		cred     Credential
-		want     Credential
+		cred     credentials.Credential
+		want     credentials.Credential
 	}{
 		{
 			name:     "Matched credential for regular registry",
 			registry: "registry.example.com",
 			target:   "registry.example.com",
-			cred: Credential{
+			cred: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
-			want: Credential{
+			want: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -3691,11 +3692,11 @@ func TestStaticCredential(t *testing.T) {
 			name:     "Matched credential for docker.io",
 			registry: "docker.io",
 			target:   "registry-1.docker.io",
-			cred: Credential{
+			cred: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
-			want: Credential{
+			want: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -3704,27 +3705,27 @@ func TestStaticCredential(t *testing.T) {
 			name:     "Mismatched credential for regular registry",
 			registry: "registry.example.com",
 			target:   "whatever.example.com",
-			cred: Credential{
+			cred: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
-			want: EmptyCredential,
+			want: credentials.EmptyCredential,
 		},
 		{
 			name:     "Mismatched credential for docker.io",
 			registry: "docker.io",
 			target:   "whatever.docker.io",
-			cred: Credential{
+			cred: credentials.Credential{
 				Username: "username",
 				Password: "password",
 			},
-			want: EmptyCredential,
+			want: credentials.EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &Client{
-				Credential: StaticCredential(tt.registry, tt.cred),
+				Credential: credentials.StaticCredential(tt.registry, tt.cred),
 			}
 			ctx := context.Background()
 			got, err := client.Credential(ctx, tt.target)
@@ -3769,7 +3770,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 
 	// create a test client with the correct credentials
 	clientValid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			Username: testUsername,
 			Password: testPassword,
 		}),
@@ -3788,7 +3789,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 
 	// create a test client with incorrect credentials
 	clientInvalid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			Username: "foo",
 			Password: "bar",
 		}),
@@ -3841,7 +3842,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 
 	// create a test client with the correct credentials
 	clientValid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			AccessToken: testAccessToken,
 		}),
 	}
@@ -3859,7 +3860,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 
 	// create a test client with incorrect credentials
 	clientInvalid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			AccessToken: "foo",
 		}),
 	}
@@ -3935,7 +3936,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 
 	// create a test client with the correct credentials
 	clientValid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			RefreshToken: testRefreshToken,
 		}),
 	}
@@ -3953,7 +3954,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 
 	// create a test client with incorrect credentials
 	clientInvalid := &Client{
-		Credential: StaticCredential(hostAddress, Credential{
+		Credential: credentials.StaticCredential(hostAddress, credentials.Credential{
 			RefreshToken: "bar",
 		}),
 	}
@@ -3967,12 +3968,211 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 
 func TestClient_fetchBasicAuth(t *testing.T) {
 	c := &Client{
-		Credential: func(ctx context.Context, registry string) (Credential, error) {
-			return EmptyCredential, nil
+		Credential: func(ctx context.Context, registry string) (credentials.Credential, error) {
+			return credentials.EmptyCredential, nil
 		},
 	}
 	_, err := c.fetchBasicAuth(context.Background(), "")
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}
+
+func TestClient_Do_Bearer_Fallback_To_Basic(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
+	var authCount, wantAuthCount int64
+	var service string
+	scopes := []string{
+		"repository:test:pull",
+	}
+
+	// Auth server that returns a bearer token (but the registry will reject it)
+	bearerToken := "invalid_bearer_token"
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&authCount, 1)
+		// Return a bearer token that the registry will reject
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, bearerToken); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		auth := r.Header.Get("Authorization")
+		// Accept basic auth
+		basicHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		if auth == basicHeader {
+			atomic.AddInt64(&successCount, 1)
+			return
+		}
+
+		// Reject the invalid bearer token and return 401
+		expectedBearer := "Bearer " + bearerToken
+		if auth == expectedBearer {
+			// Invalid token, return 401
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// For any other bearer auth, also reject
+		if strings.HasPrefix(auth, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// Initial request without auth - send bearer challenge
+		challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, strings.Join(scopes, " "))
+		w.Header().Set("Www-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != uri.Host {
+				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
+				t.Error(err)
+				return credentials.EmptyCredential, err
+			}
+			return credentials.Credential{
+				Username: username,
+				Password: password,
+			}, nil
+		},
+	}
+
+	// Make request
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+
+	// Verify the sequence: initial request (401) -> bearer auth attempt (401 from auth server + 401 from registry) -> basic auth fallback (success)
+	// Request count: 1 (initial) + 1 (bearer attempt) + 1 (basic fallback) = 3
+	if wantRequestCount = 3; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount = 1; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
+	// Auth server is called once for bearer token fetch (which fails)
+	if wantAuthCount = 1; authCount != wantAuthCount {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount, wantAuthCount)
+	}
+}
+
+func TestClient_Do_ContextCancelled(t *testing.T) {
+	accessToken := "test/access/token"
+	var requestCount int64
+	var service string
+	hintedScopes := []string{
+		"repository:dst:pull,push",
+		"repository:src:pull",
+	}
+	challengeScope := "repository:test:delete"
+	mergedScopes := CleanScopes(append([]string{challengeScope}, hintedScopes...))
+
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + accessToken
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, challengeScope)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		t.Error("request should have been cancelled before reaching this point")
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	cache := NewCache()
+	client := &Client{
+		Credential: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			return credentials.EmptyCredential, nil
+		},
+		Cache: cache,
+	}
+
+	// Pre-populate the cache with tokens for both attemptedKey and merged scopes
+	// This ensures we hit the cache retry path
+	mergedKey := strings.Join(mergedScopes, " ")
+	if _, err := cache.Set(context.Background(), uri.Host, SchemeBearer, mergedKey, func(ctx context.Context) (string, error) {
+		return accessToken, nil
+	}); err != nil {
+		t.Fatalf("failed to populate cache: %v", err)
+	}
+
+	// Create a context with short timeout
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Add scope hints
+	ctx = WithScopes(ctx, hintedScopes...)
+
+	// Make first request to populate attemptedKey, then cancel context and retry
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+
+	// Cancel context before the retry can happen
+	cancel()
+
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("Client.Do() should have returned an error for cancelled context")
+	}
+
+	// The error could be context.Canceled from either the HTTP client or our check
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Client.Do() error = %v, want context.Canceled", err)
+	}
+
+	// With cancelled context, we expect the request to fail early
+	// The exact number of requests may vary depending on when cancellation is detected
+	if requestCount > 1 {
+		t.Errorf("unexpected number of requests: %d, should be 0 or 1 with cancelled context", requestCount)
 	}
 }
