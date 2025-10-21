@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package configuration
 
 import (
 	"fmt"
@@ -45,14 +45,15 @@ func TestNewRegistriesConf(t *testing.T) {
 }
 
 func TestRegistriesConf_Config_Interface(t *testing.T) {
-	// Verify that registriesConf implements Config interface
+	// Verify that RegistriesConf can be created and used
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, "registries.conf")
 	conf, err := NewRegistriesConf(path)
 	if err != nil {
 		t.Fatalf("NewRegistriesConf() error = %v", err)
 	}
-	var _ Config = conf
+	// Just verify we can call methods on it
+	_ = conf.IsAuthConfigured()
 }
 
 func TestRegistriesConf_CredentialOperations(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"fmt"
 
 	"oras.land/oras-go/v2/internal/syncutil"
+	"oras.land/oras-go/v2/registry/remote/configuration"
 )
 
 // Store is the interface that any credentials store must implement.
@@ -44,6 +45,61 @@ type DynamicStore struct {
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  syncutil.OnceOrRetry
+}
+
+// registriesConfWrapper wraps a configuration.RegistriesConf to implement the credentials.Config interface.
+type registriesConfWrapper struct {
+	rc *configuration.RegistriesConf
+}
+
+// GetCredential adapts configuration.Credential to credentials.Credential.
+func (w *registriesConfWrapper) GetCredential(serverAddress string) (Credential, error) {
+	cred, err := w.rc.GetCredential(serverAddress)
+	if err != nil {
+		return EmptyCredential, err
+	}
+	return Credential{
+		Username: cred.Username,
+		Password: cred.Password,
+	}, nil
+}
+
+// PutCredential adapts credentials.Credential to configuration.Credential.
+func (w *registriesConfWrapper) PutCredential(serverAddress string, cred Credential) error {
+	return w.rc.PutCredential(serverAddress, configuration.Credential{
+		Username: cred.Username,
+		Password: cred.Password,
+	})
+}
+
+// DeleteCredential delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) DeleteCredential(serverAddress string) error {
+	return w.rc.DeleteCredential(serverAddress)
+}
+
+// GetCredentialHelper delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) GetCredentialHelper(serverAddress string) string {
+	return w.rc.GetCredentialHelper(serverAddress)
+}
+
+// CredentialsStore delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) CredentialsStore() string {
+	return w.rc.CredentialsStore()
+}
+
+// SetCredentialsStore delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) SetCredentialsStore(credsStore string) error {
+	return w.rc.SetCredentialsStore(credsStore)
+}
+
+// IsAuthConfigured delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) IsAuthConfigured() bool {
+	return w.rc.IsAuthConfigured()
+}
+
+// Path delegates to the wrapped RegistriesConf.
+func (w *registriesConfWrapper) Path() string {
+	return w.rc.Path()
 }
 
 // StoreOptions provides options for NewStore.
@@ -147,22 +203,25 @@ func NewStoreFromRegistriesConf(opt StoreOptions) (*DynamicStore, error) {
 	if opt.ConfigurationPath != "" {
 		configPath = opt.ConfigurationPath
 	} else {
-		configPath, err = getDefaultRegistriesConfPath()
+		configPath, err = configuration.GetDefaultRegistriesConfPath()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	cfg, err := NewRegistriesConf(configPath)
+	cfg, err := configuration.NewRegistriesConf(configPath)
 	if err != nil {
 		return nil, err
 	}
 
+	// Wrap the configuration.RegistriesConf to implement credentials.Config
+	wrapper := &registriesConfWrapper{rc: cfg}
+
 	ds := &DynamicStore{
-		config:  cfg,
+		config:  wrapper,
 		options: opt,
 	}
-	if opt.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
+	if opt.DetectDefaultNativeStore && !wrapper.IsAuthConfigured() {
 		// no authentication configured, detect the default credentials store
 		ds.detectedCredsStore = getDefaultHelperSuffix()
 	}

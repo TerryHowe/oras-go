@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package configuration
 
 import (
 	"fmt"
@@ -49,9 +49,18 @@ type registriesConfFile struct {
 	Aliases                     map[string]string `toml:"aliases,omitempty"`
 }
 
-// registriesConf represents a registries configuration that reads/writes
-// the containers-registries.conf TOML format and implements the Config interface.
-type registriesConf struct {
+// Credential represents a username and password pair for authentication.
+type Credential struct {
+	Username string
+	Password string
+}
+
+// EmptyCredential is an empty credential.
+var EmptyCredential = Credential{}
+
+// RegistriesConf represents a registries configuration that reads/writes
+// the containers-registries.conf TOML format.
+type RegistriesConf struct {
 	// path is the file path to the registries.conf file.
 	path string
 	// rwLock is a read-write lock for thread-safe access.
@@ -68,10 +77,10 @@ const (
 	registriesConfSystemPath = "/etc/containers/registries.conf"
 )
 
-// getDefaultRegistriesConfPath returns the path to the registries.conf file.
+// GetDefaultRegistriesConfPath returns the path to the registries.conf file.
 // It checks $HOME/.config/containers/registries.conf first, then falls back to
 // /etc/containers/registries.conf.
-func getDefaultRegistriesConfPath() (string, error) {
+func GetDefaultRegistriesConfPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
@@ -87,10 +96,10 @@ func getDefaultRegistriesConfPath() (string, error) {
 	return registriesConfSystemPath, nil
 }
 
-// NewRegistriesConf creates a new registriesConf with the given path.
+// NewRegistriesConf creates a new RegistriesConf with the given path.
 // It loads the existing TOML file if it exists.
-func NewRegistriesConf(path string) (*registriesConf, error) {
-	rc := &registriesConf{
+func NewRegistriesConf(path string) (*RegistriesConf, error) {
+	rc := &RegistriesConf{
 		path:        path,
 		credentials: make(map[string]Credential),
 	}
@@ -104,7 +113,7 @@ func NewRegistriesConf(path string) (*registriesConf, error) {
 }
 
 // loadFile loads the TOML configuration from the file.
-func (rc *registriesConf) loadFile() error {
+func (rc *RegistriesConf) loadFile() error {
 	data, err := os.ReadFile(rc.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,7 +138,7 @@ func (rc *registriesConf) loadFile() error {
 }
 
 // saveFile saves the current configuration to the TOML file.
-func (rc *registriesConf) saveFile() error {
+func (rc *RegistriesConf) saveFile() error {
 	data, err := toml.Marshal(rc.config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal TOML: %w", err)
@@ -146,7 +155,7 @@ func (rc *registriesConf) saveFile() error {
 //  3. "docker.io" (registry match)
 //
 // Reference: https://github.com/containers/image/blob/main/docs/containers-auth.json.5.md
-func (rc *registriesConf) GetCredential(serverAddress string) (Credential, error) {
+func (rc *RegistriesConf) GetCredential(serverAddress string) (Credential, error) {
 	rc.rwLock.RLock()
 	defer rc.rwLock.RUnlock()
 
@@ -170,7 +179,7 @@ func (rc *registriesConf) GetCredential(serverAddress string) (Credential, error
 
 // PutCredential stores a credential for the given server address.
 // Credentials are stored in memory and not persisted to the TOML file.
-func (rc *registriesConf) PutCredential(serverAddress string, cred Credential) error {
+func (rc *RegistriesConf) PutCredential(serverAddress string, cred Credential) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 
@@ -180,7 +189,7 @@ func (rc *registriesConf) PutCredential(serverAddress string, cred Credential) e
 }
 
 // DeleteCredential removes the credential for the given server address.
-func (rc *registriesConf) DeleteCredential(serverAddress string) error {
+func (rc *RegistriesConf) DeleteCredential(serverAddress string) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 
@@ -191,7 +200,7 @@ func (rc *registriesConf) DeleteCredential(serverAddress string) error {
 
 // GetCredentialHelper returns the credential helper for the given server address.
 // In the registries.conf format, credential helpers are global, not per-server.
-func (rc *registriesConf) GetCredentialHelper(serverAddress string) string {
+func (rc *RegistriesConf) GetCredentialHelper(serverAddress string) string {
 	rc.rwLock.RLock()
 	defer rc.rwLock.RUnlock()
 
@@ -204,7 +213,7 @@ func (rc *registriesConf) GetCredentialHelper(serverAddress string) string {
 
 // CredentialsStore returns the configured credentials store.
 // In registries.conf, this is represented by credential-helpers.
-func (rc *registriesConf) CredentialsStore() string {
+func (rc *RegistriesConf) CredentialsStore() string {
 	rc.rwLock.RLock()
 	defer rc.rwLock.RUnlock()
 
@@ -217,7 +226,7 @@ func (rc *registriesConf) CredentialsStore() string {
 
 // SetCredentialsStore sets the credentials store.
 // In registries.conf, this sets the credential-helpers field.
-func (rc *registriesConf) SetCredentialsStore(credsStore string) error {
+func (rc *RegistriesConf) SetCredentialsStore(credsStore string) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 
@@ -231,7 +240,7 @@ func (rc *registriesConf) SetCredentialsStore(credsStore string) error {
 }
 
 // IsAuthConfigured returns whether authentication is configured.
-func (rc *registriesConf) IsAuthConfigured() bool {
+func (rc *RegistriesConf) IsAuthConfigured() bool {
 	rc.rwLock.RLock()
 	defer rc.rwLock.RUnlock()
 
@@ -240,12 +249,12 @@ func (rc *registriesConf) IsAuthConfigured() bool {
 }
 
 // Path returns the path to the configuration.
-func (rc *registriesConf) Path() string {
+func (rc *RegistriesConf) Path() string {
 	return rc.path
 }
 
 // AddRegistry adds a new registry configuration to the TOML file.
-func (rc *registriesConf) AddRegistry(prefix, location string, insecure, blocked bool) error {
+func (rc *RegistriesConf) AddRegistry(prefix, location string, insecure, blocked bool) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 
@@ -261,7 +270,7 @@ func (rc *registriesConf) AddRegistry(prefix, location string, insecure, blocked
 }
 
 // SetUnqualifiedSearchRegistries sets the list of unqualified search registries.
-func (rc *registriesConf) SetUnqualifiedSearchRegistries(registries []string) error {
+func (rc *RegistriesConf) SetUnqualifiedSearchRegistries(registries []string) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 
@@ -270,7 +279,7 @@ func (rc *registriesConf) SetUnqualifiedSearchRegistries(registries []string) er
 }
 
 // GetUnqualifiedSearchRegistries returns the list of unqualified search registries.
-func (rc *registriesConf) GetUnqualifiedSearchRegistries() []string {
+func (rc *RegistriesConf) GetUnqualifiedSearchRegistries() []string {
 	rc.rwLock.RLock()
 	defer rc.rwLock.RUnlock()
 
@@ -278,7 +287,7 @@ func (rc *registriesConf) GetUnqualifiedSearchRegistries() []string {
 }
 
 // AddAlias adds a short-name alias to the configuration.
-func (rc *registriesConf) AddAlias(shortName, fullName string) error {
+func (rc *RegistriesConf) AddAlias(shortName, fullName string) error {
 	rc.rwLock.Lock()
 	defer rc.rwLock.Unlock()
 

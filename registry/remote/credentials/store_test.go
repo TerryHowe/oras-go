@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"testing"
 
+	"oras.land/oras-go/v2/registry/remote/configuration"
 	"oras.land/oras-go/v2/registry/remote/credentials/configtest"
 )
 
@@ -1033,12 +1034,12 @@ func Test_getRegistriesConfPath_userPath(t *testing.T) {
 		t.Fatalf("failed to write user config: %v", err)
 	}
 
-	got, err := getDefaultRegistriesConfPath()
+	got, err := configuration.GetDefaultRegistriesConfPath()
 	if err != nil {
-		t.Fatal("getDefaultRegistriesConfPath() error =", err)
+		t.Fatal("GetDefaultRegistriesConfPath() error =", err)
 	}
 	if got != userPath {
-		t.Errorf("getDefaultRegistriesConfPath() = %v, want %v", got, userPath)
+		t.Errorf("GetDefaultRegistriesConfPath() = %v, want %v", got, userPath)
 	}
 }
 
@@ -1049,12 +1050,12 @@ func Test_getRegistriesConfPath_systemPath(t *testing.T) {
 	homeDir := tempDir
 	t.Setenv("HOME", homeDir)
 
-	got, err := getDefaultRegistriesConfPath()
+	got, err := configuration.GetDefaultRegistriesConfPath()
 	if err != nil {
-		t.Fatal("getDefaultRegistriesConfPath() error =", err)
+		t.Fatal("GetDefaultRegistriesConfPath() error =", err)
 	}
 	if want := "/etc/containers/registries.conf"; got != want {
-		t.Errorf("getDefaultRegistriesConfPath() = %v, want %v", got, want)
+		t.Errorf("GetDefaultRegistriesConfPath() = %v, want %v", got, want)
 	}
 }
 
