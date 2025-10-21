@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -48,15 +47,6 @@ type registriesConfFile struct {
 	Registry                    []registryConfig  `toml:"registry,omitempty"`
 	Aliases                     map[string]string `toml:"aliases,omitempty"`
 }
-
-// Credential represents a username and password pair for authentication.
-type Credential struct {
-	Username string
-	Password string
-}
-
-// EmptyCredential is an empty credential.
-var EmptyCredential = Credential{}
 
 // RegistriesConf represents a registries configuration that reads/writes
 // the containers-registries.conf TOML format.
@@ -293,37 +283,4 @@ func (rc *RegistriesConf) AddAlias(shortName, fullName string) error {
 
 	rc.config.Aliases[shortName] = fullName
 	return rc.saveFile()
-}
-
-// stripServerAddress returns a serverAddress without scheme or trailing /
-func stripServerAddress(serverAddress string) string {
-	serverAddress = strings.TrimPrefix(serverAddress, "http://")
-	serverAddress = strings.TrimPrefix(serverAddress, "https://")
-	serverAddress = strings.TrimRight(serverAddress, "/")
-	return serverAddress
-}
-
-// getAuthPaths returns a list of paths to check for credentials in hierarchical order.
-// For example, for "docker.io/terrylhowe/helm", it returns:
-//   - "docker.io/terrylhowe/helm"
-//   - "docker.io/terrylhowe"
-//   - "docker.io"
-//
-// This supports namespace-specific credentials as documented in containers-auth.json.
-// Reference: https://github.com/containers/image/blob/main/docs/containers-auth.json.5.md
-func getAuthPaths(serverAddress string) []string {
-	addr := stripServerAddress(serverAddress)
-
-	// Split by '/' to get all path components
-	parts := strings.Split(addr, "/")
-	if len(parts) == 0 {
-		return []string{addr}
-	}
-
-	// Build paths from most specific to least specific
-	paths := make([]string, 0, len(parts))
-	for i := len(parts); i > 0; i-- {
-		paths = append(paths, strings.Join(parts[:i], "/"))
-	}
-	return paths
 }
