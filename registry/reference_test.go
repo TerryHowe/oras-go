@@ -25,6 +25,107 @@ import (
 const ValidDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 const InvalidDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde"
 
+func TestParseRegistry(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		want     Reference
+		wantErr  bool
+	}{
+		{
+			name:  "simple registry",
+			input: "localhost",
+			want: Reference{
+				Registry: "localhost",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "registry with port",
+			input: "localhost:5000",
+			want: Reference{
+				Registry: "localhost:5000",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "domain registry",
+			input: "registry.example.com",
+			want: Reference{
+				Registry: "registry.example.com",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "docker.io",
+			input: "docker.io",
+			want: Reference{
+				Registry: "docker.io",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "IPv4 with port",
+			input: "127.0.0.1:5000",
+			want: Reference{
+				Registry: "127.0.0.1:5000",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "IPv6 with port",
+			input: "[::1]:5000",
+			want: Reference{
+				Registry: "[::1]:5000",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "registry with repository",
+			input:   "registry.example.com/hello-world",
+			wantErr: true,
+		},
+		{
+			name:    "registry with repository and tag",
+			input:   "registry.example.com/hello-world:v1",
+			wantErr: true,
+		},
+		{
+			name:    "registry with repository and digest",
+			input:   fmt.Sprintf("registry.example.com/hello-world@%s", ValidDigest),
+			wantErr: true,
+		},
+		{
+			name:    "registry with nested repository",
+			input:   "registry.example.com/library/hello-world",
+			wantErr: true,
+		},
+		{
+			name:    "invalid registry with space",
+			input:   "invalid registry",
+			wantErr: true,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseRegistry(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseRegistry() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseRegistry() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // For a definition of what a "valid form [ABCD]" means, see reference.go.
 func TestParseReferenceGoodies(t *testing.T) {
 	tests := []struct {

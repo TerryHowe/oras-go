@@ -63,6 +63,37 @@ type Reference struct {
 	Reference string
 }
 
+// ParseRegistry parses a string into a Reference with only the Registry field set.
+// It returns an error if the string contains a repository path, tag, or digest.
+//
+// Valid inputs:
+//   - "localhost"
+//   - "registry.example.com"
+//   - "localhost:5000"
+//   - "127.0.0.1:5000"
+//   - "[::1]:5000"
+//
+// Invalid inputs (will return an error):
+//   - "registry.example.com/repo"
+//   - "registry.example.com/repo:tag"
+//   - "registry.example.com/repo@sha256:..."
+func ParseRegistry(registry string) (Reference, error) {
+	reg, path := splitRegistry(registry)
+	if path != "" {
+		return Reference{}, fmt.Errorf("%w: expecting only a registry, but got repository or reference", errdef.ErrInvalidReference)
+	}
+
+	ref := Reference{
+		Registry: reg,
+	}
+
+	if err := ref.ValidateRegistry(); err != nil {
+		return Reference{}, err
+	}
+
+	return ref, nil
+}
+
 // ParseReference parses a string (artifact) into an `artifact reference`.
 // Corresponding cryptographic hash implementations are required to be imported
 // as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
