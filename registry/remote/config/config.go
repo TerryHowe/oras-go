@@ -17,7 +17,6 @@ package config
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,9 +26,33 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/ioutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/ioutil"
 )
+
+func init() {
+	// Register config loader with credentials package
+	credentials.SetDefaultConfigLoader(func(configPath string) (credentials.ConfigFile, error) {
+		return Load(configPath)
+	})
+}
+
+// Type aliases for backward compatibility.
+// These types have been moved to the credentials package.
+// Deprecated: Use credentials.AuthConfig instead.
+type AuthConfig = credentials.AuthConfig
+
+// ErrInvalidAuthConfig is returned when the auth config format is invalid.
+// Deprecated: Use credentials.ErrInvalidAuthConfig instead.
+var ErrInvalidAuthConfig = credentials.ErrInvalidAuthConfig
+
+// NewAuthConfig creates an AuthConfig based on credential components.
+// Deprecated: Use credentials.NewAuthConfig instead.
+var NewAuthConfig = credentials.NewAuthConfig
+
+// EncodeAuth base64-encodes username and password into base64(username:password).
+// Deprecated: Use credentials.EncodeAuth instead.
+var EncodeAuth = credentials.EncodeAuth
 
 const (
 	// configFieldAuths is the "auths" field in the config file.
@@ -44,50 +67,8 @@ const (
 // ErrInvalidConfigFormat is returned when the config format is invalid.
 var ErrInvalidConfigFormat = errors.New("invalid config format")
 
-// AuthConfig contains authorization information for connecting to a Registry.
-// References:
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L17-L45
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/types/authconfig.go#L3-L22
-type AuthConfig struct {
-	// Auth is a base64-encoded string of "{username}:{password}".
-	Auth string `json:"auth,omitempty"`
-	// IdentityToken is used to authenticate the user and get an access token
-	// for the registry.
-	IdentityToken string `json:"identitytoken,omitempty"`
-	// RegistryToken is a bearer token to be sent to a registry.
-	RegistryToken string `json:"registrytoken,omitempty"`
-
-	Username string `json:"username,omitempty"` // legacy field for compatibility
-	Password string `json:"password,omitempty"` // legacy field for compatibility
-}
-
-// NewAuthConfig creates an authConfig based on cred.
-func NewAuthConfig(cred auth.Credential) AuthConfig {
-	return AuthConfig{
-		Auth:          encodeAuth(cred.Username, cred.Password),
-		IdentityToken: cred.RefreshToken,
-		RegistryToken: cred.AccessToken,
-	}
-}
-
-// Credential returns an auth.Credential based on ac.
-func (ac AuthConfig) Credential() (auth.Credential, error) {
-	cred := auth.Credential{
-		Username:     ac.Username,
-		Password:     ac.Password,
-		RefreshToken: ac.IdentityToken,
-		AccessToken:  ac.RegistryToken,
-	}
-	if ac.Auth != "" {
-		var err error
-		// override username and password
-		cred.Username, cred.Password, err = decodeAuth(ac.Auth)
-		if err != nil {
-			return auth.EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
-		}
-	}
-	return cred, nil
-}
+// ErrNoConfigPath is returned when Save is called on a Config with no path.
+var ErrNoConfigPath = errors.New("no config path configured")
 
 // Config represents a docker configuration file.
 // References:
@@ -110,6 +91,29 @@ type Config struct {
 	// credentialHelpers is the credHelpers field of the config.
 	// Reference: https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L29
 	credentialHelpers map[string]string
+}
+
+// NewConfig creates an in-memory Config with no file backing.
+// Use this when you want to configure credentials programmatically
+// without reading from or writing to a file.
+func NewConfig() *Config {
+	return &Config{
+		content:           make(map[string]json.RawMessage),
+		authsCache:        make(map[string]json.RawMessage),
+		credentialHelpers: make(map[string]string),
+	}
+}
+
+// NewConfigWithPath creates an in-memory Config with a file path configured.
+// The file is not read; use Load() to read from an existing file.
+// The path is used when Save() is called.
+func NewConfigWithPath(configPath string) *Config {
+	return &Config{
+		path:              configPath,
+		content:           make(map[string]json.RawMessage),
+		authsCache:        make(map[string]json.RawMessage),
+		credentialHelpers: make(map[string]string),
+	}
 }
 
 // Load loads Config from the given config path.
@@ -162,8 +166,8 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// GetAuthConfig returns an auth.Credential for serverAddress.
-func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) {
+// GetAuthConfig returns an AuthConfig for serverAddress.
+func (cfg *Config) GetAuthConfig(serverAddress string) (credentials.AuthConfig, error) {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -181,32 +185,57 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 			}
 		}
 		if !matched {
-			return auth.EmptyCredential, nil
+			return credentials.AuthConfig{}, nil
 		}
 	}
-	var authCfg AuthConfig
+	var authCfg credentials.AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-		return auth.EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		return credentials.AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
 	}
-	return authCfg.Credential()
+	return authCfg, nil
 }
 
-// PutAuthConfig puts cred for serverAddress.
-func (cfg *Config) PutCredential(serverAddress string, cred auth.Credential) error {
+// SetAuthConfig sets authCfg for serverAddress in memory without saving to file.
+// Use Save() to persist changes, or PutAuthConfig() to set and save atomically.
+func (cfg *Config) SetAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	authCfg := NewAuthConfig(cred)
 	authCfgBytes, err := json.Marshal(authCfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
 	cfg.authsCache[serverAddress] = authCfgBytes
-	return cfg.saveFile()
+	return nil
 }
 
-// DeleteAuthConfig deletes the corresponding credential for serverAddress.
-func (cfg *Config) DeleteCredential(serverAddress string) error {
+// PutAuthConfig puts authCfg for serverAddress and saves to file if a path is configured.
+func (cfg *Config) PutAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	authCfgBytes, err := json.Marshal(authCfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth field: %w", err)
+	}
+	cfg.authsCache[serverAddress] = authCfgBytes
+	if cfg.path != "" {
+		return cfg.saveFile()
+	}
+	return nil
+}
+
+// RemoveAuthConfig removes the credential for serverAddress from memory without saving.
+// Use Save() to persist changes, or DeleteAuthConfig() to remove and save atomically.
+func (cfg *Config) RemoveAuthConfig(serverAddress string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	delete(cfg.authsCache, serverAddress)
+}
+
+// DeleteAuthConfig deletes the corresponding credential for serverAddress and saves to file.
+func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -215,12 +244,41 @@ func (cfg *Config) DeleteCredential(serverAddress string) error {
 		return nil
 	}
 	delete(cfg.authsCache, serverAddress)
-	return cfg.saveFile()
+	if cfg.path != "" {
+		return cfg.saveFile()
+	}
+	return nil
 }
 
-// GetCredentialHelper returns the credential helpers for serverAddress.
+// GetCredentialHelper returns the credential helper for serverAddress.
 func (cfg *Config) GetCredentialHelper(serverAddress string) string {
+	cfg.rwLock.RLock()
+	defer cfg.rwLock.RUnlock()
+
 	return cfg.credentialHelpers[serverAddress]
+}
+
+// SetCredentialHelper sets the credential helper for serverAddress in memory.
+func (cfg *Config) SetCredentialHelper(serverAddress, helper string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	if cfg.credentialHelpers == nil {
+		cfg.credentialHelpers = make(map[string]string)
+	}
+	cfg.credentialHelpers[serverAddress] = helper
+}
+
+// CredentialHelpers returns a copy of all configured credential helpers.
+func (cfg *Config) CredentialHelpers() map[string]string {
+	cfg.rwLock.RLock()
+	defer cfg.rwLock.RUnlock()
+
+	result := make(map[string]string, len(cfg.credentialHelpers))
+	for k, v := range cfg.credentialHelpers {
+		result[k] = v
+	}
+	return result
 }
 
 // CredentialsStore returns the configured credentials store.
@@ -236,12 +294,32 @@ func (cfg *Config) Path() string {
 	return cfg.path
 }
 
-// SetCredentialsStore puts the configured credentials store.
-func (cfg *Config) SetCredentialsStore(credsStore string) error {
+// SetPath sets the file path for this config.
+// This is used by Save() to determine where to write the config.
+func (cfg *Config) SetPath(path string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	cfg.path = path
+}
+
+// SetCredentialsStore sets the credentials store in memory without saving.
+func (cfg *Config) SetCredentialsStore(credsStore string) {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
 	cfg.credentialsStore = credsStore
+}
+
+// Save saves the config to the configured file path.
+// Returns ErrNoConfigPath if no path is configured.
+func (cfg *Config) Save() error {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	if cfg.path == "" {
+		return ErrNoConfigPath
+	}
 	return cfg.saveFile()
 }
 
@@ -298,32 +376,6 @@ func (cfg *Config) saveFile() (returnErr error) {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
 	return nil
-}
-
-// encodeAuth base64-encodes username and password into base64(username:password).
-func encodeAuth(username, password string) string {
-	if username == "" && password == "" {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-}
-
-// decodeAuth decodes a base64 encoded string and returns username and password.
-func decodeAuth(authStr string) (username string, password string, err error) {
-	if authStr == "" {
-		return "", "", nil
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(authStr)
-	if err != nil {
-		return "", "", err
-	}
-	decodedStr := string(decoded)
-	username, password, ok := strings.Cut(decodedStr, ":")
-	if !ok {
-		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
-	}
-	return username, password, nil
 }
 
 // ToHostname normalizes a server address to just its hostname, removing

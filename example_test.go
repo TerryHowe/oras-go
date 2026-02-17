@@ -47,10 +47,10 @@ func Example_pullFilesFromRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -82,10 +82,10 @@ func Example_pullImageFromRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -124,10 +124,10 @@ func Example_pullImageUsingDockerCredentials() {
 	if err != nil {
 		panic(err)
 	}
-	repo.Client = &auth.Client{
-		Client:     retry.DefaultClient,
-		Cache:      auth.NewCache(),
-		Credential: credentials.Credential(credStore), // Use the credentials store
+	repo.Registry.Client = &auth.Client{
+		Client:         retry.DefaultClient,
+		Cache:          auth.NewCache(),
+		CredentialFunc: remote.GetCredentialFunc(credStore), // Use the credentials store
 	}
 
 	// 2. Copy from the remote repository to the OCI layout store
@@ -187,10 +187,10 @@ func Example_pushFilesToRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -215,10 +215,10 @@ func Example_attachBlobToRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required.
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(registry, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(registry, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),

@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
@@ -66,29 +67,6 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
-// CredentialFunc represents a function that resolves the credential for the
-// given registry (i.e. host:port).
-//
-// [EmptyCredential] is a valid return value and should not be considered as
-// an error.
-type CredentialFunc func(ctx context.Context, hostport string) (Credential, error)
-
-// StaticCredential specifies static credentials for the given host.
-func StaticCredential(registry string, cred Credential) CredentialFunc {
-	if registry == "docker.io" {
-		// it is expected that traffic targeting "docker.io" will be redirected
-		// to "registry-1.docker.io"
-		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
-		registry = "registry-1.docker.io"
-	}
-	return func(_ context.Context, hostport string) (Credential, error) {
-		if hostport == registry {
-			return cred, nil
-		}
-		return EmptyCredential, nil
-	}
-}
-
 // Client is an auth-decorated HTTP client.
 // Its zero value is a usable client that uses http.DefaultClient with no cache.
 type Client struct {
@@ -105,12 +83,12 @@ type Client struct {
 	// Header contains the custom headers to be added to each request.
 	Header http.Header
 
-	// Credential specifies the function for resolving the credential for the
+	// CredentialFunc specifies the function for resolving the credential for the
 	// given registry (i.e. host:port).
 	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
 	// If nil, the credential is always resolved to EmptyCredential.
-	Credential CredentialFunc
+	CredentialFunc credentials.CredentialFunc
 
 	// Cache caches credentials for direct accessing the remote registry.
 	// If nil, no cache is used.
@@ -121,13 +99,30 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
-	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-	// instead the distribution spec when authenticating using username and
-	// password.
+	// TokenFetcher is an optional custom token fetcher for bearer authentication.
+	// If nil, a default composite token fetcher is used based on the credential
+	// type and legacyMode setting.
+	TokenFetcher TokenFetcher
+
+	// legacyMode controls whether to use the legacy distribution spec
+	// instead of OAuth2 with password grant when authenticating using
+	// username and password.
+	// Default is false (OAuth2 is used).
+	//
+	// When legacyMode is true, the client uses the legacy distribution spec for
+	// authentication. If the registry says it supports bearer authentication,
+	// basic authentication will be performed unless there are no credentials
+	// or a refresh token is provided. This is the approach used in oras-go
+	// v1 and v2.
+	//
+	// When legacyMode is false (default), the client uses OAuth2 with password
+	// grant.  If the registry says it supports bearer authentication, bearer
+	// authentication will be performed.
+	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	ForceAttemptOAuth2 bool
+	legacyMode bool
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -148,11 +143,11 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 }
 
 // credential resolves the credential for the given registry.
-func (c *Client) credential(ctx context.Context, reg string) (Credential, error) {
-	if c.Credential == nil {
-		return EmptyCredential, nil
+func (c *Client) credential(ctx context.Context, reg string) (credentials.Credential, error) {
+	if c.CredentialFunc == nil {
+		return credentials.EmptyCredential, nil
 	}
-	return c.Credential(ctx, reg)
+	return c.CredentialFunc(ctx, reg)
 }
 
 // cache resolves the cache.
@@ -170,6 +165,27 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set(headerUserAgent, userAgent)
+}
+
+// SetLegacyMode sets whether to use legacy distribution spec authentication
+// instead of OAuth2 with password grant when authenticating using username
+// and password.
+//
+// When legacy is true, the client uses the legacy distribution spec for
+// authentication. If the registry says it supports bearer authentication,
+// basic authentication will be performed unless there are no credentials
+// or a refresh token is provided. This is the approach used in oras-go
+// v1 and v2.
+//
+// When legacy is false (default), the client uses OAuth2 with password
+// grant.  If the registry says it supports bearer authentication, bearer
+// authentication will be performed.
+//
+// References:
+//   - https://distribution.github.io/distribution/spec/auth/jwt/
+//   - https://distribution.github.io/distribution/spec/auth/oauth/
+func (c *Client) SetLegacyMode(legacy bool) {
+	c.legacyMode = legacy
 }
 
 // Do sends the request to the remote server, attempting to resolve
@@ -291,7 +307,7 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve credential: %w", err)
 	}
-	if cred == EmptyCredential {
+	if cred == credentials.EmptyCredential {
 		return "", ErrBasicCredentialNotFound
 	}
 	if cred.Username == "" || cred.Password == "" {
@@ -307,10 +323,23 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if err != nil {
 		return "", err
 	}
+
+	// Use custom TokenFetcher if provided
+	if c.TokenFetcher != nil {
+		params := TokenParams{
+			Registry: registry,
+			Realm:    realm,
+			Service:  service,
+			Scopes:   scopes,
+		}
+		return c.TokenFetcher.FetchToken(ctx, params, cred)
+	}
+
+	// Fall back to original implementation
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
+	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && c.legacyMode) {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)
@@ -370,7 +399,7 @@ func (c *Client) fetchDistributionToken(ctx context.Context, realm, service stri
 
 // fetchOAuth2Token fetches an OAuth2 access token.
 // Reference: https://distribution.github.io/distribution/spec/auth/oauth/
-func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, scopes []string, cred Credential) (string, error) {
+func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, scopes []string, cred credentials.Credential) (string, error) {
 	form := url.Values{}
 	if cred.RefreshToken != "" {
 		form.Set("grant_type", "refresh_token")

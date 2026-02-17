@@ -27,9 +27,34 @@ import (
 	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/internal/syncutil"
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/config"
 )
+
+// ConfigFile is the interface for a Docker configuration file that provides
+// credential storage capabilities. This interface is implemented by
+// [config.Config] from the config package.
+type ConfigFile interface {
+	// GetAuthConfig returns the AuthConfig for the given server address.
+	GetAuthConfig(serverAddress string) (AuthConfig, error)
+	// PutAuthConfig saves the AuthConfig for the given server address.
+	PutAuthConfig(serverAddress string, authCfg AuthConfig) error
+	// DeleteAuthConfig removes the AuthConfig for the given server address.
+	DeleteAuthConfig(serverAddress string) error
+	// GetCredentialHelper returns the credential helper configured for the server.
+	GetCredentialHelper(serverAddress string) string
+	// CredentialsStore returns the configured credentials store name.
+	CredentialsStore() string
+	// SetCredentialsStore sets the credentials store name.
+	SetCredentialsStore(credsStore string)
+	// IsAuthConfigured returns true if any authentication is configured.
+	IsAuthConfigured() bool
+	// Path returns the path to the config file.
+	Path() string
+	// Save saves the config file.
+	Save() error
+}
+
+// ConfigFileLoader is a function that loads a ConfigFile from a path.
+type ConfigFileLoader func(configPath string) (ConfigFile, error)
 
 const (
 	dockerConfigDirEnv   = "DOCKER_CONFIG"
@@ -40,9 +65,9 @@ const (
 // Store is the interface that any credentials store must implement.
 type Store interface {
 	// Get retrieves credentials from the store for the given server address.
-	Get(ctx context.Context, serverAddress string) (auth.Credential, error)
+	Get(ctx context.Context, serverAddress string) (Credential, error)
 	// Put saves credentials into the store for the given server address.
-	Put(ctx context.Context, serverAddress string, cred auth.Credential) error
+	Put(ctx context.Context, serverAddress string, cred Credential) error
 	// Delete removes credentials from the store for the given server address.
 	Delete(ctx context.Context, serverAddress string) error
 }
@@ -50,7 +75,7 @@ type Store interface {
 // DynamicStore dynamically determines which store to use based on the settings
 // in the config file.
 type DynamicStore struct {
-	config             *config.Config
+	config             ConfigFile
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  syncutil.OnceOrRetry
@@ -82,6 +107,34 @@ type StoreOptions struct {
 	DetectDefaultNativeStore bool
 }
 
+// defaultConfigLoader is set by the config package during init.
+// This allows the credentials package to load config files without importing config.
+var defaultConfigLoader ConfigFileLoader
+
+// ErrNoConfigLoader is returned when NewStore is called but no config loader
+// has been registered. This typically means the config package was not imported.
+var ErrNoConfigLoader = fmt.Errorf("no config loader registered; import the config package or use NewStoreFromConfig")
+
+// SetDefaultConfigLoader sets the default config file loader.
+// This is called by the config package during init to register itself.
+func SetDefaultConfigLoader(loader ConfigFileLoader) {
+	defaultConfigLoader = loader
+}
+
+// NewStoreFromConfig returns a Store based on the given ConfigFile.
+// This allows creating a store from an already-loaded config file.
+func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
+	ds := &DynamicStore{
+		config:  cfg,
+		options: opts,
+	}
+	if opts.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
+		// no authentication configured, detect the default credentials store
+		ds.detectedCredsStore = getDefaultHelperSuffix()
+	}
+	return ds
+}
+
 // NewStore returns a Store based on the given configuration file.
 //
 // For Get(), Put() and Delete(), the returned Store will dynamically determine
@@ -95,19 +148,14 @@ type StoreOptions struct {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	cfg, err := config.Load(configPath)
+	if defaultConfigLoader == nil {
+		return nil, ErrNoConfigLoader
+	}
+	cfg, err := defaultConfigLoader(configPath)
 	if err != nil {
 		return nil, err
 	}
-	ds := &DynamicStore{
-		config:  cfg,
-		options: opts,
-	}
-	if opts.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
-		// no authentication configured, detect the default credentials store
-		ds.detectedCredsStore = getDefaultHelperSuffix()
-	}
-	return ds, nil
+	return NewStoreFromConfig(cfg, opts), nil
 }
 
 // NewStoreFromDocker returns a Store based on the default docker config file.
@@ -129,22 +177,23 @@ func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
+func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	return ds.getStore(serverAddress).Get(ctx, serverAddress)
 }
 
 // Put saves credentials into the store for the given server address.
 // Put returns ErrPlaintextPutDisabled if native store is not available and
 // [StoreOptions].AllowPlaintextPut is set to false.
-func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred Credential) error {
 	if err := ds.getStore(serverAddress).Put(ctx, serverAddress, cred); err != nil {
 		return err
 	}
 	// save the detected creds store back to the config file on first put
 	return ds.setCredsStoreOnce.Do(func() error {
 		if ds.detectedCredsStore != "" {
-			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
-				return fmt.Errorf("failed to set credsStore: %w", err)
+			ds.config.SetCredentialsStore(ds.detectedCredsStore)
+			if err := ds.config.Save(); err != nil {
+				return fmt.Errorf("failed to save config with credsStore: %w", err)
 			}
 		}
 		return nil
@@ -236,22 +285,22 @@ func NewStoreWithFallbacks(primary Store, fallbacks ...Store) Store {
 // Get retrieves credentials from the StoreWithFallbacks for the given server.
 // It searches the primary and the fallback stores for the credentials of serverAddress
 // and returns when it finds the credentials in any of the stores.
-func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
+func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	for _, s := range sf.stores {
 		cred, err := s.Get(ctx, serverAddress)
 		if err != nil {
-			return auth.EmptyCredential, err
+			return EmptyCredential, err
 		}
-		if cred != auth.EmptyCredential {
+		if cred != EmptyCredential {
 			return cred, nil
 		}
 	}
-	return auth.EmptyCredential, nil
+	return EmptyCredential, nil
 }
 
 // Put saves credentials into the StoreWithFallbacks. It puts
 // the credentials into the primary store.
-func (sf *storeWithFallbacks) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (sf *storeWithFallbacks) Put(ctx context.Context, serverAddress string, cred Credential) error {
 	return sf.stores[0].Put(ctx, serverAddress, cred)
 }
 
