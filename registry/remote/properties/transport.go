@@ -15,7 +15,7 @@ limitations under the License.
 
 package properties
 
-// Transport contains transport configuration af a remote registry.
+// Transport contains transport configuration of a remote registry.
 type Transport struct {
 	// CACert is the path to the CA certificate file for verifying the registry's certificate.
 	CACert string
