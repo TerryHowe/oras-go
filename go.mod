@@ -7,3 +7,5 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	golang.org/x/sync v0.20.0
 )
+
+require golang.org/x/net v0.53.0

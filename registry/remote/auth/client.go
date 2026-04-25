@@ -23,10 +23,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"golang.org/x/net/publicsuffix"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
@@ -122,9 +124,12 @@ type Client struct {
 	ForceAttemptOAuth2 bool
 
 	// TrustedRealmHosts is a list of additional hosts trusted to serve as
-	// bearer token endpoints. By default only the registry host itself is
-	// trusted. Add entries here for deployments that use a separate external
-	// token server (e.g. "auth.example.com" or "auth.example.com:8080").
+	// bearer token endpoints. By default, realm hosts that share the same
+	// registered domain (eTLD+1) as the registry are trusted — for example,
+	// "auth.example.com" is trusted for registry "registry.example.com"
+	// because both share the registered domain "example.com". Add entries
+	// here for cross-domain token services (e.g. "auth.corp-sso.io" for a
+	// registry at "registry.internal.company.com").
 	//
 	// Caution: hosts listed here will receive the user's credentials.
 	TrustedRealmHosts []string
@@ -164,9 +169,15 @@ func (c *Client) cache() Cache {
 	return c.Cache
 }
 
-// validateRealm checks that the bearer token realm host is the registry itself
-// or an explicitly trusted host, preventing a malicious registry from
-// redirecting credential requests to an attacker-controlled server.
+// validateRealm checks that the bearer token realm host is trusted before
+// sending credentials to it, preventing a malicious registry from redirecting
+// credential requests to an attacker-controlled server.
+//
+// A realm host is trusted when it either:
+//   - exactly matches the registry host (including port), or
+//   - shares the same registered domain (eTLD+1) as the registry host
+//     (e.g. "auth.example.com" is trusted for registry "registry.example.com"), or
+//   - is listed in Client.TrustedRealmHosts.
 func (c *Client) validateRealm(realm, registryHost string) error {
 	if realm == "" {
 		return nil
@@ -175,9 +186,22 @@ func (c *Client) validateRealm(realm, registryHost string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
 	}
+	// exact host:port match
 	if realmURL.Host == registryHost {
 		return nil
 	}
+	// same registered domain (eTLD+1), ports stripped for comparison
+	realmHostname := realmURL.Hostname()
+	registryHostname, _, _ := net.SplitHostPort(registryHost)
+	if registryHostname == "" {
+		registryHostname = registryHost
+	}
+	realmDomain, err1 := publicsuffix.EffectiveTLDPlusOne(realmHostname)
+	registryDomain, err2 := publicsuffix.EffectiveTLDPlusOne(registryHostname)
+	if err1 == nil && err2 == nil && realmDomain == registryDomain {
+		return nil
+	}
+	// explicit allowlist
 	for _, trusted := range c.TrustedRealmHosts {
 		if trusted == realmURL.Host {
 			return nil
