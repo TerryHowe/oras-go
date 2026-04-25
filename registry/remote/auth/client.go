@@ -120,6 +120,14 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	ForceAttemptOAuth2 bool
+
+	// TrustedRealmHosts is a list of additional hosts trusted to serve as
+	// bearer token endpoints. By default only the registry host itself is
+	// trusted. Add entries here for deployments that use a separate external
+	// token server (e.g. "auth.example.com" or "auth.example.com:8080").
+	//
+	// Caution: hosts listed here will receive the user's credentials.
+	TrustedRealmHosts []string
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -154,6 +162,28 @@ func (c *Client) cache() Cache {
 		return noCache{}
 	}
 	return c.Cache
+}
+
+// validateRealm checks that the bearer token realm host is the registry itself
+// or an explicitly trusted host, preventing a malicious registry from
+// redirecting credential requests to an attacker-controlled server.
+func (c *Client) validateRealm(realm, registryHost string) error {
+	if realm == "" {
+		return nil
+	}
+	realmURL, err := url.Parse(realm)
+	if err != nil {
+		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	if realmURL.Host == registryHost {
+		return nil
+	}
+	for _, trusted := range c.TrustedRealmHosts {
+		if trusted == realmURL.Host {
+			return nil
+		}
+	}
+	return fmt.Errorf("bearer realm host %q is not trusted: registry host is %q; add the realm host to Client.TrustedRealmHosts to allow it", realmURL.Host, registryHost)
 }
 
 // SetUserAgent sets the user agent for all out-going requests.
@@ -257,6 +287,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
+		if err := c.validateRealm(realm, host); err != nil {
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, host, realm, service, scopes)
