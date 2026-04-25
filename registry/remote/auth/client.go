@@ -23,10 +23,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"golang.org/x/net/publicsuffix"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
@@ -106,6 +108,17 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	ForceAttemptOAuth2 bool
+
+	// TrustedRealmHosts is a list of additional hosts trusted to serve as
+	// bearer token endpoints. By default, realm hosts that share the same
+	// registered domain (eTLD+1) as the registry are trusted — for example,
+	// "auth.example.com" is trusted for registry "registry.example.com"
+	// because both share the registered domain "example.com". Add entries
+	// here for cross-domain token services (e.g. "auth.corp-sso.io" for a
+	// registry at "registry.internal.company.com").
+	//
+	// Caution: hosts listed here will receive the user's credentials.
+	TrustedRealmHosts []string
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -148,6 +161,47 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set(headerUserAgent, userAgent)
+}
+
+// validateRealm checks that the bearer token realm host is trusted before
+// sending credentials to it, preventing a malicious registry from redirecting
+// credential requests to an attacker-controlled server.
+//
+// A realm host is trusted when it either:
+//   - exactly matches the registry host (including port), or
+//   - shares the same registered domain (eTLD+1) as the registry host
+//     (e.g. "auth.example.com" is trusted for registry "registry.example.com"), or
+//   - is listed in Client.TrustedRealmHosts.
+func (c *Client) validateRealm(realm, registryHost string) error {
+	if realm == "" {
+		return nil
+	}
+	realmURL, err := url.Parse(realm)
+	if err != nil {
+		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	// exact host:port match
+	if realmURL.Host == registryHost {
+		return nil
+	}
+	// same registered domain (eTLD+1), ports stripped for comparison
+	realmHostname := realmURL.Hostname()
+	registryHostname, _, _ := net.SplitHostPort(registryHost)
+	if registryHostname == "" {
+		registryHostname = registryHost
+	}
+	realmDomain, err1 := publicsuffix.EffectiveTLDPlusOne(realmHostname)
+	registryDomain, err2 := publicsuffix.EffectiveTLDPlusOne(registryHostname)
+	if err1 == nil && err2 == nil && realmDomain == registryDomain {
+		return nil
+	}
+	// explicit allowlist
+	for _, trusted := range c.TrustedRealmHosts {
+		if trusted == realmURL.Host {
+			return nil
+		}
+	}
+	return fmt.Errorf("bearer realm host %q is not trusted: registry host is %q; add the realm host to Client.TrustedRealmHosts to allow it", realmURL.Host, registryHost)
 }
 
 // Do sends the request to the remote server, attempting to resolve
@@ -243,6 +297,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
+		if err := c.validateRealm(realm, host); err != nil {
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, host, realm, service, scopes)
