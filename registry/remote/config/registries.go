@@ -53,12 +53,12 @@ type Registry struct {
 	Mirrors []Mirror `toml:"mirror"`
 	// MirrorByDigestOnly restricts mirrors to digest-based pulls only.
 	MirrorByDigestOnly bool `toml:"mirror-by-digest-only"`
-	// ForceBasicAuth forces HTTP Basic authentication regardless of what the
-	// registry advertises. When true, if the registry challenges with Bearer
-	// auth the client will use Basic auth instead. Requires the registry to
-	// also accept Basic auth credentials. This is an ORAS-specific field and
-	// may be ignored by other tools that parse registries.conf.
-	ForceBasicAuth bool `toml:"force-basic-auth"`
+	// UseDistributionTokenAuth makes the client use the distribution spec token
+	// endpoint instead of OAuth2 with password grant when authenticating with a
+	// username and password. This is the approach used in oras-go v1 and v2.
+	// This is an ORAS-specific field and may be ignored by other tools that
+	// parse registries.conf.
+	UseDistributionTokenAuth bool `toml:"use-distribution-token-auth"`
 	// ReferrersAPI indicates whether the registry supports the OCI Referrers
 	// API. Valid values: "supported", "unsupported". An empty or unrecognized
 	// value defaults to auto-detection on first use. This is an ORAS-specific

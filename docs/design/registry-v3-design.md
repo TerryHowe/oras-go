@@ -214,7 +214,7 @@ sequenceDiagram
 flowchart TD
     A[FetchToken called] --> B{cred.AccessToken != empty?}
     B -- yes --> C[Return AccessToken directly]
-    B -- no --> D{cred == EmptyCredential\nor LegacyMode && no RefreshToken?}
+    B -- no --> D{cred == EmptyCredential\nor UseDistributionTokenAuth && no RefreshToken?}
     D -- yes --> E[DistributionTokenFetcher\nGET /token?service=...&scope=...]
     D -- no --> F[OAuth2TokenFetcher\nPOST /token grant_type=password\nor refresh_token]
 ```
@@ -447,7 +447,7 @@ stateDiagram-v2
 |---|---|---|
 | `Credential` type location | `auth.Credential` | `credentials.Credential` (canonical) |
 | `auth.Client.Credential` field | direct credential | `CredentialFunc credentials.CredentialFunc` |
-| `ForceAttemptOAuth2` flag | `bool` field on `auth.Client` | removed; use `SetLegacyMode()` |
+| `ForceAttemptOAuth2` flag | `bool` field on `auth.Client` | removed; use the `UseDistributionTokenAuth` field (inverted sense) |
 | Token fetching | embedded in `auth.Client` | extracted to `TokenFetcher` interface |
 | Registry configuration | manual field-by-field setup | `properties.Registry` + `ClientBuilder` |
 | Policy enforcement | not available | `policy` package + `WithPolicyEnforcement` middleware |

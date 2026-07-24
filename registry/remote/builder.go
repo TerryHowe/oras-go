@@ -113,12 +113,12 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 
 	// Create auth client
 	client := &auth.Client{
-		Client:         httpClient,
-		Header:         header,
-		CredentialFunc: credentialFunc,
-		Cache:          cache,
-		TokenFetcher:   b.TokenFetcher,
-		ForceBasicAuth: props.Attributes.ForceBasicAuth,
+		Client:                   httpClient,
+		Header:                   header,
+		CredentialFunc:           credentialFunc,
+		Cache:                    cache,
+		TokenFetcher:             b.TokenFetcher,
+		UseDistributionTokenAuth: props.Attributes.UseDistributionTokenAuth,
 	}
 
 	return client, nil

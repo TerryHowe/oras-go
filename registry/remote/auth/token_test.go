@@ -451,13 +451,13 @@ func TestCompositeTokenFetcher_FetchToken_EmptyCredential(t *testing.T) {
 	}
 }
 
-func TestCompositeTokenFetcher_FetchToken_LegacyMode(t *testing.T) {
+func TestCompositeTokenFetcher_FetchToken_DistributionTokenAuth(t *testing.T) {
 	wantToken := "distribution_token"
 
 	fetcher := &CompositeTokenFetcher{
-		Distribution: &mockTokenFetcher{token: wantToken},
-		OAuth2:       &mockTokenFetcher{token: "oauth2_token"},
-		LegacyMode:   true,
+		Distribution:             &mockTokenFetcher{token: wantToken},
+		OAuth2:                   &mockTokenFetcher{token: "oauth2_token"},
+		UseDistributionTokenAuth: true,
 	}
 
 	params := TokenParams{
@@ -482,9 +482,9 @@ func TestCompositeTokenFetcher_FetchToken_OAuth2(t *testing.T) {
 	wantToken := "oauth2_token"
 
 	fetcher := &CompositeTokenFetcher{
-		Distribution: &mockTokenFetcher{token: "distribution_token"},
-		OAuth2:       &mockTokenFetcher{token: wantToken},
-		LegacyMode:   false, // Not legacy mode
+		Distribution:             &mockTokenFetcher{token: "distribution_token"},
+		OAuth2:                   &mockTokenFetcher{token: wantToken},
+		UseDistributionTokenAuth: false, // Not distribution token auth
 	}
 
 	params := TokenParams{
@@ -509,9 +509,9 @@ func TestCompositeTokenFetcher_FetchToken_RefreshToken(t *testing.T) {
 	wantToken := "oauth2_token"
 
 	fetcher := &CompositeTokenFetcher{
-		Distribution: &mockTokenFetcher{token: "distribution_token"},
-		OAuth2:       &mockTokenFetcher{token: wantToken},
-		LegacyMode:   true, // Even in legacy mode, refresh token uses OAuth2
+		Distribution:             &mockTokenFetcher{token: "distribution_token"},
+		OAuth2:                   &mockTokenFetcher{token: wantToken},
+		UseDistributionTokenAuth: true, // Even with distribution token auth, refresh token uses OAuth2
 	}
 
 	params := TokenParams{
@@ -537,8 +537,8 @@ func TestNewCompositeTokenFetcher(t *testing.T) {
 
 	fetcher := NewCompositeTokenFetcher(client, header, clientID, true)
 
-	if fetcher.LegacyMode != true {
-		t.Error("LegacyMode should be true")
+	if fetcher.UseDistributionTokenAuth != true {
+		t.Error("UseDistributionTokenAuth should be true")
 	}
 
 	distFetcher, ok := fetcher.Distribution.(*DistributionTokenFetcher)

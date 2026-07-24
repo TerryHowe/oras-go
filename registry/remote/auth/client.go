@@ -102,34 +102,28 @@ type Client struct {
 
 	// TokenFetcher is an optional custom token fetcher for bearer authentication.
 	// If nil, a default composite token fetcher is used based on the credential
-	// type and legacyMode setting.
+	// type and UseDistributionTokenAuth setting.
 	TokenFetcher TokenFetcher
 
-	// legacyMode controls whether to use the legacy distribution spec
-	// instead of OAuth2 with password grant when authenticating using
-	// username and password.
+	// UseDistributionTokenAuth controls whether to use the distribution spec
+	// token endpoint instead of OAuth2 with password grant when authenticating
+	// using username and password.
 	// Default is false (OAuth2 is used).
 	//
-	// When legacyMode is true, the client uses the legacy distribution spec for
-	// authentication. If the registry says it supports bearer authentication,
-	// basic authentication will be performed unless there are no credentials
-	// or a refresh token is provided. This is the approach used in oras-go
-	// v1 and v2.
+	// When UseDistributionTokenAuth is true, the client uses the distribution
+	// spec token endpoint. If the registry says it supports bearer
+	// authentication, the token is fetched from the token endpoint using basic
+	// authentication unless there are no credentials or a refresh token is
+	// provided. This is the approach used in oras-go v1 and v2.
 	//
-	// When legacyMode is false (default), the client uses OAuth2 with password
-	// grant.  If the registry says it supports bearer authentication, bearer
-	// authentication will be performed.
+	// When UseDistributionTokenAuth is false (default), the client uses OAuth2
+	// with password grant. If the registry says it supports bearer
+	// authentication, bearer authentication will be performed.
 	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	legacyMode bool
-
-	// ForceBasicAuth forces the use of HTTP Basic authentication regardless
-	// of what authentication scheme the registry advertises. When true, if
-	// the registry challenges with Bearer auth, Basic auth is used instead.
-	// This requires the registry to also accept Basic auth credentials.
-	ForceBasicAuth bool
+	UseDistributionTokenAuth bool
 
 	// TrustedRealmHosts is an optional allowlist of bearer token realm hosts
 	// accepted in addition to the registry's own host. When empty (the
@@ -304,27 +298,6 @@ func (c *Client) validateRealm(realm string, registryURL *url.URL) error {
 	return fmt.Errorf("bearer realm host %q is not in Client.TrustedRealmHosts and is not the registry host %q", realmURL.Host, registryHost)
 }
 
-// SetLegacyMode sets whether to use legacy distribution spec authentication
-// instead of OAuth2 with password grant when authenticating using username
-// and password.
-//
-// When legacy is true, the client uses the legacy distribution spec for
-// authentication. If the registry says it supports bearer authentication,
-// basic authentication will be performed unless there are no credentials
-// or a refresh token is provided. This is the approach used in oras-go
-// v1 and v2.
-//
-// When legacy is false (default), the client uses OAuth2 with password
-// grant.  If the registry says it supports bearer authentication, bearer
-// authentication will be performed.
-//
-// References:
-//   - https://distribution.github.io/distribution/spec/auth/jwt/
-//   - https://distribution.github.io/distribution/spec/auth/oauth/
-func (c *Client) SetLegacyMode(legacy bool) {
-	c.legacyMode = legacy
-}
-
 // Do sends the request to the remote server, attempting to resolve
 // authentication if 'Authorization' header is not set.
 //
@@ -382,9 +355,6 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt again with credentials for recognized schemes
 	challenge := resp.Header.Get(headerWWWAuthenticate)
 	scheme, params := parseChallenge(challenge)
-	if c.ForceBasicAuth && scheme == SchemeBearer {
-		scheme = SchemeBasic
-	}
 	switch scheme {
 	case SchemeBasic:
 		resp.Body.Close()
@@ -492,7 +462,7 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && c.legacyMode) {
+	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && c.UseDistributionTokenAuth) {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)

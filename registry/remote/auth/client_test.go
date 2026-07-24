@@ -726,7 +726,7 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 			}, nil
 		},
 	}
-	client.SetLegacyMode(true)
+	client.UseDistributionTokenAuth = true
 
 	// first request
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -854,7 +854,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
-	client.SetLegacyMode(true)
+	client.UseDistributionTokenAuth = true
 
 	// first request
 	ctx := WithScopes(context.Background(), scopes...)
@@ -997,7 +997,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
-	client1.SetLegacyMode(true)
+	client1.UseDistributionTokenAuth = true
 
 	// set up server 2
 	username2 := "test_user2"
@@ -1068,7 +1068,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
-	client2.SetLegacyMode(true)
+	client2.UseDistributionTokenAuth = true
 
 	ctx := context.Background()
 	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
@@ -3347,7 +3347,7 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 			}, nil
 		},
 	}
-	client.SetLegacyMode(true)
+	client.UseDistributionTokenAuth = true
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3433,7 +3433,7 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 			}, nil
 		},
 	}
-	client.SetLegacyMode(true)
+	client.UseDistributionTokenAuth = true
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3619,7 +3619,7 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
-	client.SetLegacyMode(true)
+	client.UseDistributionTokenAuth = true
 
 	// request with bearer auth
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3978,64 +3978,6 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 	}
 }
 
-func TestClient_Do_ForceBasicAuth_OverridesBearer(t *testing.T) {
-	username := "test_user"
-	password := "test_password"
-	var requestCount, wantRequestCount int64
-	var successCount, wantSuccessCount int64
-
-	// Server challenges with Bearer but accepts Basic.
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&requestCount, 1)
-		authHeader := r.Header.Get("Authorization")
-		expectedBasic := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if authHeader == expectedBasic {
-			atomic.AddInt64(&successCount, 1)
-			return
-		}
-		// Challenge with Bearer to test ForceBasicAuth override.
-		w.Header().Set("Www-Authenticate", `Bearer realm="https://auth.example.com/token",service="test"`)
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer ts.Close()
-
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-
-	client := &Client{
-		ForceBasicAuth: true,
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
-				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
-			}
-			return credentials.Credential{
-				Username: username,
-				Password: password,
-			}, nil
-		},
-	}
-
-	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
-	if err != nil {
-		t.Fatalf("failed to create test request: %v", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Client.Do() error = %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
-	}
-	if wantRequestCount += 2; requestCount != wantRequestCount {
-		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
-	}
-	if wantSuccessCount++; successCount != wantSuccessCount {
-		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
-	}
-}
-
 func TestClient_Do_Bearer_CustomTokenFetcher(t *testing.T) {
 	wantToken := "custom_fetcher_token"
 	var requestCount, wantRequestCount int64
@@ -4143,21 +4085,21 @@ func TestClient_Do_Bearer_CustomTokenFetcher_Error(t *testing.T) {
 	}
 }
 
-func TestClient_SetLegacyMode(t *testing.T) {
+func TestClient_UseDistributionTokenAuth(t *testing.T) {
 	var client Client
 	// Default should be false.
-	if client.legacyMode {
-		t.Error("default legacyMode should be false")
+	if client.UseDistributionTokenAuth {
+		t.Error("default UseDistributionTokenAuth should be false")
 	}
 
-	client.SetLegacyMode(true)
-	if !client.legacyMode {
-		t.Error("SetLegacyMode(true) should set legacyMode to true")
+	client.UseDistributionTokenAuth = true
+	if !client.UseDistributionTokenAuth {
+		t.Error("UseDistributionTokenAuth should be true")
 	}
 
-	client.SetLegacyMode(false)
-	if client.legacyMode {
-		t.Error("SetLegacyMode(false) should set legacyMode to false")
+	client.UseDistributionTokenAuth = false
+	if client.UseDistributionTokenAuth {
+		t.Error("UseDistributionTokenAuth should be false")
 	}
 }
 

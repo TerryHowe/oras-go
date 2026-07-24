@@ -47,12 +47,11 @@ type Attributes struct {
 	// - ReferrersAPIUnknown: the capability is unknown and will be auto-detected
 	ReferrersAPI ReferrersAPI
 
-	// ForceBasicAuth forces the client to use HTTP Basic authentication
-	// regardless of what authentication scheme the registry advertises.
-	// When true, if the registry challenges with Bearer auth, the client
-	// will use Basic auth instead. This requires the registry to also
-	// accept Basic auth credentials.
-	ForceBasicAuth bool
+	// UseDistributionTokenAuth controls whether the client uses the
+	// distribution spec token endpoint instead of OAuth2 with password grant
+	// when authenticating with a username and password. This is the approach
+	// used in oras-go v1 and v2.
+	UseDistributionTokenAuth bool
 
 	// RepositoryListPageSize sets the default page size for the catalog
 	// (repository list) API. Zero lets the registry decide.

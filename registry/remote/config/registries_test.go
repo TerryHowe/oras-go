@@ -170,8 +170,8 @@ location = "mirror.example.com"
 			name: "config with oras-specific attributes",
 			content: `
 [[registry]]
-prefix = "basic-auth.example.com"
-force-basic-auth = true
+prefix = "dist-token.example.com"
+use-distribution-token-auth = true
 
 [[registry]]
 prefix = "referrers-supported.example.com"
@@ -184,8 +184,8 @@ referrers-api = "unsupported"
 			want: &RegistriesConfig{
 				Registries: []Registry{
 					{
-						Prefix:         "basic-auth.example.com",
-						ForceBasicAuth: true,
+						Prefix:                   "dist-token.example.com",
+						UseDistributionTokenAuth: true,
 					},
 					{
 						Prefix:       "referrers-supported.example.com",
@@ -704,12 +704,12 @@ func TestMergeRegistriesConfig(t *testing.T) {
 		UnqualifiedSearchRegistries: []string{"quay.io", "docker.io"},
 		ShortNameMode:               "enforcing",
 		Registries: []Registry{
-			{Prefix: "quay.io", Insecure: true},               // Override
-			{Prefix: "gcr.io", Location: "mirror.gcr.io"},     // Add new
+			{Prefix: "quay.io", Insecure: true},           // Override
+			{Prefix: "gcr.io", Location: "mirror.gcr.io"}, // Add new
 		},
 		Aliases: map[string]string{
-			"nginx":  "quay.io/nginx/nginx",              // Override
-			"ubuntu": "docker.io/library/ubuntu",         // Add new
+			"nginx":  "quay.io/nginx/nginx",      // Override
+			"ubuntu": "docker.io/library/ubuntu", // Add new
 		},
 	}
 

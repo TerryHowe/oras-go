@@ -200,25 +200,26 @@ func (f *OAuth2TokenFetcher) send(req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
 
-// CompositeTokenFetcher selects strategy based on credential type and legacy mode.
-// It delegates to either DistributionTokenFetcher or OAuth2TokenFetcher based
-// on the credential and configuration.
+// CompositeTokenFetcher selects strategy based on credential type and
+// authentication mode. It delegates to either DistributionTokenFetcher or
+// OAuth2TokenFetcher based on the credential and configuration.
 type CompositeTokenFetcher struct {
 	// Distribution is the fetcher for distribution spec tokens.
 	Distribution TokenFetcher
 	// OAuth2 is the fetcher for OAuth2 tokens.
 	OAuth2 TokenFetcher
-	// LegacyMode controls whether to use the legacy distribution spec
-	// instead of OAuth2 with password grant when authenticating using
-	// username and password.
-	LegacyMode bool
+	// UseDistributionTokenAuth controls whether to use the distribution spec
+	// token endpoint instead of OAuth2 with password grant when authenticating
+	// using username and password. This is the approach used in oras-go v1
+	// and v2.
+	UseDistributionTokenAuth bool
 }
 
 // FetchToken selects the appropriate fetcher and delegates the token acquisition.
 // The selection logic is:
 //   - If credential has an access token, return it directly.
-//   - If credential is empty or (has no refresh token and legacy mode is enabled),
-//     use the distribution fetcher.
+//   - If credential is empty or (has no refresh token and distribution token
+//     auth is enabled), use the distribution fetcher.
 //   - Otherwise, use the OAuth2 fetcher.
 func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error) {
 	// Return access token directly if provided
@@ -226,8 +227,9 @@ func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenPara
 		return cred.AccessToken, nil
 	}
 
-	// Use distribution fetcher for empty credentials or legacy mode without refresh token
-	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && f.LegacyMode) {
+	// Use distribution fetcher for empty credentials or distribution token auth
+	// without refresh token
+	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && f.UseDistributionTokenAuth) {
 		return f.Distribution.FetchToken(ctx, params, cred)
 	}
 
@@ -237,7 +239,7 @@ func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenPara
 
 // NewCompositeTokenFetcher creates a new CompositeTokenFetcher with default
 // Distribution and OAuth2 fetchers using the provided client and header.
-func NewCompositeTokenFetcher(client *http.Client, header http.Header, clientID string, legacyMode bool) *CompositeTokenFetcher {
+func NewCompositeTokenFetcher(client *http.Client, header http.Header, clientID string, useDistributionTokenAuth bool) *CompositeTokenFetcher {
 	return &CompositeTokenFetcher{
 		Distribution: &DistributionTokenFetcher{
 			Client: client,
@@ -248,6 +250,6 @@ func NewCompositeTokenFetcher(client *http.Client, header http.Header, clientID 
 			Header:   header,
 			ClientID: clientID,
 		},
-		LegacyMode: legacyMode,
+		UseDistributionTokenAuth: useDistributionTokenAuth,
 	}
 }

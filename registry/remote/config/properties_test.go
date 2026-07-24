@@ -355,9 +355,9 @@ func TestNewRegistryProperties_MirrorByDigestOnlyDefault(t *testing.T) {
 				Prefix:             "docker.io",
 				MirrorByDigestOnly: true,
 				Mirrors: []Mirror{
-					{Location: "m1.example.com"},                              // empty → should default to "digest-only"
-					{Location: "m2.example.com", PullFromMirror: "tag-only"},  // explicit → should stay "tag-only"
-					{Location: "m3.example.com", PullFromMirror: "all"},       // explicit → should stay "all"
+					{Location: "m1.example.com"},                             // empty → should default to "digest-only"
+					{Location: "m2.example.com", PullFromMirror: "tag-only"}, // explicit → should stay "tag-only"
+					{Location: "m3.example.com", PullFromMirror: "all"},      // explicit → should stay "all"
 				},
 			},
 		},
@@ -379,29 +379,29 @@ func TestNewRegistryProperties_MirrorByDigestOnlyDefault(t *testing.T) {
 	}
 }
 
-func TestNewRegistryProperties_ForceBasicAuth(t *testing.T) {
+func TestNewRegistryProperties_UseDistributionTokenAuth(t *testing.T) {
 	config := &RegistriesConfig{
 		Registries: []Registry{
-			{Prefix: "basic-auth.example.com", ForceBasicAuth: true},
+			{Prefix: "dist-token.example.com", UseDistributionTokenAuth: true},
 			{Prefix: "normal.example.com"},
 		},
 		Aliases: map[string]string{},
 	}
 
-	props, err := NewRegistryProperties("basic-auth.example.com/image:v1", config)
+	props, err := NewRegistryProperties("dist-token.example.com/image:v1", config)
 	if err != nil {
 		t.Fatalf("NewRegistryProperties() unexpected error: %v", err)
 	}
-	if !props.Attributes.ForceBasicAuth {
-		t.Error("Attributes.ForceBasicAuth should be true")
+	if !props.Attributes.UseDistributionTokenAuth {
+		t.Error("Attributes.UseDistributionTokenAuth should be true")
 	}
 
 	props, err = NewRegistryProperties("normal.example.com/image:v1", config)
 	if err != nil {
 		t.Fatalf("NewRegistryProperties() unexpected error: %v", err)
 	}
-	if props.Attributes.ForceBasicAuth {
-		t.Error("Attributes.ForceBasicAuth should be false for normal registry")
+	if props.Attributes.UseDistributionTokenAuth {
+		t.Error("Attributes.UseDistributionTokenAuth should be false for normal registry")
 	}
 }
 
