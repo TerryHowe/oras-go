@@ -87,4 +87,21 @@ type Attributes struct {
 	// TokenFlow selects how a bearer token is acquired for username/password
 	// credentials. TokenFlowDefault leaves the choice to the client.
 	TokenFlow TokenFlow
+
+	// TrustedRealmHosts lists bearer realm hosts that this registry may
+	// direct the client to even though they are, or resolve to, internal
+	// addresses such as RFC 1918 private addresses. Entries are host names,
+	// IP addresses, or `*.domain` patterns, optionally with a port; a pattern
+	// does not match the domain itself. See auth.Client.TrustedRealmHosts for
+	// the full semantics.
+	//
+	// The trust applies only to challenges issued by this registry. It is not
+	// inherited by its mirrors.
+	TrustedRealmHosts []string
+
+	// AllowInternalRealms trusts any bearer realm host this registry directs
+	// the client to, except on link-local and cloud metadata addresses. See
+	// auth.Client.AllowInternalRealms. Like TrustedRealmHosts, it applies
+	// only to this registry and is not inherited by its mirrors.
+	AllowInternalRealms bool
 }

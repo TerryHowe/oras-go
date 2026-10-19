@@ -271,3 +271,26 @@ func ExampleClient_Do_withRefreshToken() {
 	// Output:
 	// 200
 }
+
+// ExampleClient_trustedRealmHosts gives an example of a client for a registry
+// on an internal network whose bearer token service runs on another internal
+// host, as in a self-hosted GitLab deployment. Without the trust, a realm that
+// resolves to a private address is refused.
+func ExampleClient_trustedRealmHosts() {
+	client := &Client{
+		// Trust the GitLab host by name, and any host below auth.corp.example.
+		// "*.auth.corp.example" does not match "auth.corp.example" itself.
+		TrustedRealmHosts: []string{"gitlab.corp.example", "*.auth.corp.example"},
+	}
+	// The trust applies to every registry the client talks to, so dedicate
+	// the client to the registry that issues the challenges.
+	req, err := http.NewRequest(http.MethodGet, "https://registry.corp.example/v2/", nil)
+	if err != nil {
+		panic(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+}

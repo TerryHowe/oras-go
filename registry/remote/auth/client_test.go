@@ -4778,7 +4778,7 @@ func Test_validateRealm(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRealm(context.Background(), tt.realm, tt.registry)
+			err := validateRealm(context.Background(), tt.realm, tt.registry, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
 			}
@@ -4795,7 +4795,7 @@ func Test_validateRealm_UsesContext(t *testing.T) {
 		return []net.IPAddr{{IP: net.ParseIP("93.184.215.14")}}, nil
 	})
 	registry, _ := url.Parse("https://registry.example.com/v2/")
-	if err := validateRealm(ctx, "https://auth.example.com/token", registry); err != nil {
+	if err := validateRealm(ctx, "https://auth.example.com/token", registry, nil); err != nil {
 		t.Fatalf("validateRealm() error = %v", err)
 	}
 	if gotMarker != "marker" {
@@ -5351,6 +5351,9 @@ func TestClient_Clone_copiesEveryExportedField(t *testing.T) {
 		Cache:        DefaultCache,
 		ClientID:     "original-id",
 		TokenFetcher: NewCompositeTokenFetcher(nil, nil, "", false),
+
+		TrustedRealmHosts:   []string{"gitlab.corp.example"},
+		AllowInternalRealms: true,
 	}
 
 	originalValue := reflect.ValueOf(original).Elem()

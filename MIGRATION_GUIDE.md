@@ -526,6 +526,18 @@ changes:
   the referenced manifest.
 - **Copy diagnostics:** `oras.CopyError.Descriptor` identifies the failing
   content.
+- **Trusted bearer realms:** a bearer realm on, or resolving to, an internal
+  address (loopback, private, CGNAT, link-local) is refused unless the
+  registry was contacted at the same host name. Split-host deployments on an
+  internal network, such as a self-hosted GitLab registry whose realm is the
+  GitLab host, can opt in with `auth.Client.TrustedRealmHosts` (exact hosts,
+  or `*.domain` patterns that do not match `domain` itself) or
+  `auth.Client.AllowInternalRealms`. With `remote.ClientBuilder`, set the
+  same fields on `properties.Attributes`; the trust then applies only to
+  that registry's challenges and is not inherited by its mirrors. Patterns
+  and `AllowInternalRealms` still refuse link-local and cloud metadata
+  addresses, and no form of trust relaxes the scheme or https-to-http
+  downgrade checks.
 
 For current API documentation and examples, see
 [pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).

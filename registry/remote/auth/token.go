@@ -51,20 +51,28 @@ type TokenFetcher interface {
 	FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error)
 }
 
-// tokenRegistryURLKey is the context key for the URL the registry was
-// contacted at, carried from Client.Do to the token request.
-type tokenRegistryURLKey struct{}
+// tokenRealmGuardKey is the context key for the tokenRealmGuard carried from
+// Client.Do to the token request.
+type tokenRealmGuardKey struct{}
 
-// withTokenRegistryURL returns a copy of ctx carrying registryURL, against
-// which sendRequest validates every redirect hop of a token request.
-func withTokenRegistryURL(ctx context.Context, registryURL *url.URL) context.Context {
-	return context.WithValue(ctx, tokenRegistryURLKey{}, registryURL)
+// tokenRealmGuard holds what sendRequest validates every redirect hop of a
+// token request against: the URL the registry was contacted at and the realm
+// trust of the Client that received the challenge.
+type tokenRealmGuard struct {
+	registryURL *url.URL
+	trust       *realmTrust
 }
 
-// tokenRegistryURL returns the registry URL carried by ctx, if any.
-func tokenRegistryURL(ctx context.Context) *url.URL {
-	registryURL, _ := ctx.Value(tokenRegistryURLKey{}).(*url.URL)
-	return registryURL
+// withTokenRealmGuard returns a copy of ctx carrying registryURL and trust,
+// against which sendRequest validates every redirect hop of a token request.
+func withTokenRealmGuard(ctx context.Context, registryURL *url.URL, trust *realmTrust) context.Context {
+	return context.WithValue(ctx, tokenRealmGuardKey{}, tokenRealmGuard{registryURL: registryURL, trust: trust})
+}
+
+// tokenRealmGuardFrom returns the tokenRealmGuard carried by ctx, if any.
+func tokenRealmGuardFrom(ctx context.Context) (tokenRealmGuard, bool) {
+	guard, ok := ctx.Value(tokenRealmGuardKey{}).(tokenRealmGuard)
+	return guard, ok && guard.registryURL != nil
 }
 
 // sendRequest adds the custom headers to the request and sends it using the
@@ -77,9 +85,10 @@ func tokenRegistryURL(ctx context.Context) *url.URL {
 // password or refresh token.
 //
 // When the request context carries the registry URL (set by Client.Do), every
-// redirect hop is also validated by validateRealm against that URL, so that a
-// validated realm cannot redirect the token request to an internal address
-// or downgrade it from https to http.
+// redirect hop is also validated by validateRealm against that URL and the
+// realm trust of the Client, so that a validated realm cannot redirect the
+// token request to an untrusted internal address or downgrade it from https
+// to http.
 //
 // References:
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
@@ -88,8 +97,8 @@ func sendRequest(client *http.Client, header http.Header, req *http.Request) (*h
 	for key, values := range header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	if registryURL := tokenRegistryURL(req.Context()); registryURL != nil {
-		client = realmRedirectGuard(client, registryURL)
+	if guard, ok := tokenRealmGuardFrom(req.Context()); ok {
+		client = realmRedirectGuard(client, guard.registryURL, guard.trust)
 	}
 	safeClient := redirectSafeClient(client)
 	checkRedirect := safeClient.CheckRedirect

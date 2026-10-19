@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -138,6 +139,45 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFetcher TokenFetcher
 
+	// TrustedRealmHosts lists bearer realm hosts that are trusted even though
+	// they are, or resolve to, internal addresses such as RFC 1918 private
+	// addresses. By default the client refuses to fetch a token from a realm
+	// on such an address unless the registry itself was contacted at the same
+	// host name, because a registry could otherwise steer the credential to
+	// an internal service. Trusting a realm host is useful for split-host
+	// deployments on an internal network, such as a self-hosted GitLab whose
+	// registry issues challenges for a realm on the GitLab host.
+	//
+	// Each entry is either a host name or IP address, which is trusted
+	// explicitly and skips the address check entirely, or a `*.domain`
+	// pattern, which matches any host below domain but not domain itself:
+	// "*.corp.example" matches "gitlab.corp.example" and
+	// "a.b.corp.example", but neither "corp.example" nor
+	// "evilcorp.example". A host matched by a pattern is still refused when
+	// it resolves to a link-local or cloud metadata address (e.g.
+	// 169.254.169.254 or 100.100.100.200).
+	//
+	// An entry may carry a port ("gitlab.corp.example:8443",
+	// "[fd00::1]:8443"), in which case it only matches realms on that port;
+	// without one it matches any port. Matching is case-insensitive. Entries
+	// that cannot be parsed, such as URLs or a bare "*", match nothing.
+	//
+	// The trust applies to challenges from every registry this Client talks
+	// to, so configure it only on a Client dedicated to the registry that
+	// issues the challenges; remote.ClientBuilder builds one Client per
+	// registry from properties.Attributes for this reason. Trust never
+	// relaxes the scheme check or the refusal of an http realm for a registry
+	// contacted over https, and it is applied to each redirect hop of a token
+	// request in the same way.
+	TrustedRealmHosts []string
+
+	// AllowInternalRealms trusts any bearer realm host as if it matched a
+	// `*.domain` pattern in TrustedRealmHosts: realms on internal addresses
+	// are allowed, except link-local and cloud metadata addresses, which are
+	// allowed only for hosts named exactly in TrustedRealmHosts. It has the
+	// same per-Client scope as TrustedRealmHosts.
+	AllowInternalRealms bool
+
 	// redirectSafeClientOnce guards the lazy construction of
 	// redirectSafeClientValue below.
 	redirectSafeClientOnce sync.Once
@@ -168,6 +208,9 @@ func (c *Client) Clone() *Client {
 		Cache:          c.Cache,
 		ClientID:       c.ClientID,
 		TokenFetcher:   c.TokenFetcher,
+
+		TrustedRealmHosts:   slices.Clone(c.TrustedRealmHosts),
+		AllowInternalRealms: c.AllowInternalRealms,
 	}
 }
 
@@ -334,12 +377,16 @@ func isInternalAddr(addr netip.Addr) bool {
 // name resolves to a public address here and to an internal address when the
 // request is dialed.
 //
+// trust relaxes the address check for realm hosts the user has opted to
+// trust; see Client.TrustedRealmHosts. A nil trust trusts nothing. The scheme
+// and downgrade checks apply regardless of trust.
+//
 // validateRealm is also applied to every redirect hop of a token request.
 //
 // References:
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func validateRealm(ctx context.Context, realm string, registryURL *url.URL) error {
+func validateRealm(ctx context.Context, realm string, registryURL *url.URL, trust *realmTrust) error {
 	if realm == "" {
 		return nil
 	}
@@ -361,9 +408,18 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	if registryURL != nil && strings.EqualFold(host, registryURL.Hostname()) {
 		return nil
 	}
+	blocked, kind := isInternalAddr, "a loopback, link-local, private, unspecified, or carrier-grade NAT address"
+	hint := "; configure it as a trusted realm host if it is intended"
+	switch trust.level(realmURL) {
+	case realmTrustedExplicitly:
+		return nil
+	case realmTrustedBroadly:
+		blocked, kind = isMetadataAddr, "a link-local or cloud metadata address"
+		hint = "; only a realm host named exactly as trusted may use it"
+	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		if isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, unspecified, or carrier-grade NAT address", host)
+		if blocked(addr) {
+			return fmt.Errorf("bearer realm host %q is %s%s", host, kind, hint)
 		}
 		return nil
 	}
@@ -374,8 +430,8 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	}
 	for _, ipAddr := range addrs {
 		addr, ok := netip.AddrFromSlice(ipAddr.IP)
-		if ok && isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q resolves to %s, a loopback, link-local, private, unspecified, or carrier-grade NAT address", host, addr.Unmap())
+		if ok && blocked(addr) {
+			return fmt.Errorf("bearer realm host %q resolves to %s, %s%s", host, addr.Unmap(), kind, hint)
 		}
 	}
 	return nil
@@ -383,18 +439,19 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 
 // realmRedirectGuard returns a shallow copy of client whose CheckRedirect
 // applies validateRealm to every redirect hop of a token request, measured
-// against registryURL, before delegating to the CheckRedirect of client. This
-// keeps a validated realm from redirecting the token request to an internal
-// address or from https to http.
+// against registryURL and trust, before delegating to the CheckRedirect of
+// client. This keeps a validated realm from redirecting the token request to
+// an internal address or from https to http. Each hop is judged on its own
+// host, so a trusted realm cannot lend its trust to a redirect target.
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client {
+func realmRedirectGuard(client *http.Client, registryURL *url.URL, trust *realmTrust) *http.Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := validateRealm(req.Context(), req.URL.String(), registryURL); err != nil {
+		if err := validateRealm(req.Context(), req.URL.String(), registryURL, trust); err != nil {
 			return fmt.Errorf("redirect of token request rejected: %w", err)
 		}
 		if checkRedirect != nil {
@@ -543,12 +600,13 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(ctx, realm, originalReq.URL); err != nil {
+		trust := newRealmTrust(c.TrustedRealmHosts, c.AllowInternalRealms)
+		if err := validateRealm(ctx, realm, originalReq.URL, trust); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(withTokenRegistryURL(ctx, originalReq.URL), resource, realm, service, scopes)
+			return c.fetchBearerToken(withTokenRealmGuard(ctx, originalReq.URL, trust), resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)

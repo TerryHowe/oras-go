@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
@@ -126,6 +127,11 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 		CredentialFunc: credentialFunc,
 		Cache:          cache,
 		TokenFetcher:   b.tokenFetcher(props, httpClient, header),
+
+		// The client is built for this registry alone, which scopes the
+		// realm trust to the challenges it issues.
+		TrustedRealmHosts:   slices.Clone(props.Attributes.TrustedRealmHosts),
+		AllowInternalRealms: props.Attributes.AllowInternalRealms,
 	}
 
 	return client, nil
@@ -375,6 +381,11 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 			Transport:  m.Transport,
 			Attributes: props.Attributes,
 		}
+		// Realm trust is granted to the primary registry's challenges. A
+		// mirror is a different host, possibly run by a different party, so
+		// it does not inherit that trust.
+		mirrorProps.Attributes.TrustedRealmHosts = nil
+		mirrorProps.Attributes.AllowInternalRealms = false
 
 		mirrorClient, err := builder.Build(mirrorProps)
 		if err != nil {
