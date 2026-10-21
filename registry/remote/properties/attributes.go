@@ -15,6 +15,8 @@ limitations under the License.
 
 package properties
 
+import "net/netip"
+
 // ReferrersAPI represents the Referrers API capability of a registry.
 type ReferrersAPI int
 
@@ -87,4 +89,12 @@ type Attributes struct {
 	// TokenFlow selects how a bearer token is acquired for username/password
 	// credentials. TokenFlowDefault leaves the choice to the client.
 	TokenFlow TokenFlow
+
+	// BlockedRealmPrefixes lists the address prefixes a bearer token realm
+	// must not point at, for challenges from this registry. It is copied to
+	// auth.Client.BlockedRealmPrefixes and has the same semantics:
+	//   - nil: auth.DefaultBlockedRealmPrefixes is used
+	//   - empty, non-nil: no address is blocked
+	//   - non-empty: exactly the listed prefixes are blocked
+	BlockedRealmPrefixes []netip.Prefix
 }

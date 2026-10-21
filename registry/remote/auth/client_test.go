@@ -4726,7 +4726,7 @@ func Test_validateRealm(t *testing.T) {
 		"alibaba-imds.example.com":   {"100.100.100.200"},
 		"unspecified.example.com":    {"0.0.0.0"},
 		"mapped.example.com":         {"::ffff:169.254.169.254"},
-		"mixed.example.com":          {"93.184.215.14", "10.0.0.1"},
+		"mixed.example.com":          {"93.184.215.14", "127.0.0.2"},
 		"registry.internal":          {"10.0.0.5"},
 		"cgnat-boundary.example.com": {"100.128.0.1"},
 	}))
@@ -4752,9 +4752,9 @@ func Test_validateRealm(t *testing.T) {
 		{"IMDS IPv4 is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
 		{"loopback IPv4 is rejected when registry is on a public host", "http://127.0.0.1:9090/token", registryHTTPS, true},
 		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true},
-		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true},
+		{"private RFC1918 is allowed by default", "http://10.0.0.5/token", registryHTTP, false},
 		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true},
-		{"CGNAT literal is rejected", "http://100.64.0.1/token", registryHTTP, true},
+		{"CGNAT literal is allowed by default", "http://100.64.0.1/token", registryHTTP, false},
 		{"Alibaba Cloud metadata literal is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, true},
 		{"address just above CGNAT range is allowed", "http://100.128.0.1/token", registryHTTP, false},
 		{"IPv4-mapped IMDS literal is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, true},
@@ -4762,23 +4762,23 @@ func Test_validateRealm(t *testing.T) {
 		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true},
 		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, true},
 		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, true},
-		{"hostname resolving to private address is rejected", "https://private.example.com/token", registryHTTPS, true},
+		{"hostname resolving to private address is allowed by default", "https://private.example.com/token", registryHTTPS, false},
 		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, true},
-		{"hostname resolving to CGNAT is rejected", "https://cgnat.example.com/token", registryHTTPS, true},
+		{"hostname resolving to CGNAT is allowed by default", "https://cgnat.example.com/token", registryHTTPS, false},
 		{"hostname resolving to Alibaba Cloud metadata is rejected", "http://alibaba-imds.example.com/", registryHTTP, true},
 		{"hostname resolving to unspecified address is rejected", "https://unspecified.example.com/token", registryHTTPS, true},
 		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, true},
-		{"hostname with any internal address is rejected", "https://mixed.example.com/token", registryHTTPS, true},
+		{"hostname with any blocked address is rejected", "https://mixed.example.com/token", registryHTTPS, true},
 		{"hostname resolving just above CGNAT range is allowed", "https://cgnat-boundary.example.com/token", registryHTTPS, false},
 		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, false},
 		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, false},
 		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, false},
-		{"internal hostname is rejected when registry is on another host", "http://registry.internal:5001/token", registryHTTP, true},
-		{"internal hostname is rejected without a registry URL", "http://registry.internal:5001/token", nil, true},
+		{"private hostname is allowed when registry is on another host", "http://registry.internal:5001/token", registryHTTP, false},
+		{"private hostname is allowed without a registry URL", "http://registry.internal:5001/token", nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRealm(context.Background(), tt.realm, tt.registry)
+			err := validateRealm(context.Background(), tt.realm, tt.registry, DefaultBlockedRealmPrefixes())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
 			}
@@ -4795,7 +4795,7 @@ func Test_validateRealm_UsesContext(t *testing.T) {
 		return []net.IPAddr{{IP: net.ParseIP("93.184.215.14")}}, nil
 	})
 	registry, _ := url.Parse("https://registry.example.com/v2/")
-	if err := validateRealm(ctx, "https://auth.example.com/token", registry); err != nil {
+	if err := validateRealm(ctx, "https://auth.example.com/token", registry, DefaultBlockedRealmPrefixes()); err != nil {
 		t.Fatalf("validateRealm() error = %v", err)
 	}
 	if gotMarker != "marker" {
@@ -5351,6 +5351,8 @@ func TestClient_Clone_copiesEveryExportedField(t *testing.T) {
 		Cache:        DefaultCache,
 		ClientID:     "original-id",
 		TokenFetcher: NewCompositeTokenFetcher(nil, nil, "", false),
+
+		BlockedRealmPrefixes: PrivateRealmPrefixes(),
 	}
 
 	originalValue := reflect.ValueOf(original).Elem()

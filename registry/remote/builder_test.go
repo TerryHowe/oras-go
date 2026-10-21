@@ -31,8 +31,10 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -419,6 +421,50 @@ func TestClientBuilder_Build_WithTokenFetcher(t *testing.T) {
 	if client.TokenFetcher != customFetcher {
 		t.Error("Client TokenFetcher does not match custom fetcher")
 	}
+}
+
+func TestClientBuilder_Build_BlockedRealmPrefixes(t *testing.T) {
+	build := func(t *testing.T, registry string, prefixes []netip.Prefix) *auth.Client {
+		t.Helper()
+		client, err := NewClientBuilder().Build(&properties.Registry{
+			Reference:  properties.Reference{Registry: registry, Repository: "test/repo"},
+			Attributes: properties.Attributes{BlockedRealmPrefixes: prefixes},
+		})
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		return client
+	}
+
+	t.Run("unset stays nil so the defaults apply", func(t *testing.T) {
+		if got := build(t, "a.example.com", nil).BlockedRealmPrefixes; got != nil {
+			t.Errorf("BlockedRealmPrefixes = %v, want nil", got)
+		}
+	})
+	t.Run("empty stays non-nil so nothing is blocked", func(t *testing.T) {
+		if got := build(t, "a.example.com", []netip.Prefix{}).BlockedRealmPrefixes; got == nil {
+			t.Error("BlockedRealmPrefixes = nil, want an empty non-nil list")
+		}
+	})
+	t.Run("scoped to the registry the properties describe", func(t *testing.T) {
+		strict := append(auth.DefaultBlockedRealmPrefixes(), auth.PrivateRealmPrefixes()...)
+		a := build(t, "a.example.com", strict)
+		b := build(t, "b.example.com", nil)
+		if !slices.Equal(a.BlockedRealmPrefixes, strict) {
+			t.Errorf("registry A BlockedRealmPrefixes = %v, want %v", a.BlockedRealmPrefixes, strict)
+		}
+		if b.BlockedRealmPrefixes != nil {
+			t.Errorf("registry B BlockedRealmPrefixes = %v, want nil", b.BlockedRealmPrefixes)
+		}
+	})
+	t.Run("client does not share the properties slice", func(t *testing.T) {
+		prefixes := auth.PrivateRealmPrefixes()
+		client := build(t, "a.example.com", prefixes)
+		client.BlockedRealmPrefixes[0] = netip.MustParsePrefix("203.0.113.0/24")
+		if prefixes[0] != netip.MustParsePrefix("10.0.0.0/8") {
+			t.Errorf("mutating the client's list changed the properties: %v", prefixes[0])
+		}
+	})
 }
 
 func TestClientBuilder_Build_InsecureTLS(t *testing.T) {

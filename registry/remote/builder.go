@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
@@ -126,6 +127,8 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 		CredentialFunc: credentialFunc,
 		Cache:          cache,
 		TokenFetcher:   b.tokenFetcher(props, httpClient, header),
+
+		BlockedRealmPrefixes: slices.Clone(props.Attributes.BlockedRealmPrefixes),
 	}
 
 	return client, nil

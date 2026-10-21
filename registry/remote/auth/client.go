@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -138,6 +139,26 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFetcher TokenFetcher
 
+	// BlockedRealmPrefixes lists the address prefixes a bearer token realm
+	// must not point at. A realm is rejected if its host is, or resolves to, an
+	// address in any listed prefix, including when the address is embedded in
+	// an IPv4-mapped, NAT64 (64:ff9b::/96) or 6to4 (2002::/16) IPv6 address.
+	// The list also applies to every redirect hop of a token request.
+	//
+	//   - nil: DefaultBlockedRealmPrefixes is used, which blocks loopback,
+	//     link-local, unspecified and cloud metadata addresses but allows
+	//     private networks such as RFC 1918.
+	//   - empty, non-nil: no address is blocked.
+	//   - non-empty: exactly the listed prefixes are blocked.
+	//
+	// For a strict mode that also rejects private networks, use:
+	//
+	//	append(DefaultBlockedRealmPrefixes(), PrivateRealmPrefixes()...)
+	//
+	// A realm on the same host as the registry is exempt from this check, and
+	// the scheme and https-to-http downgrade checks always apply.
+	BlockedRealmPrefixes []netip.Prefix
+
 	// redirectSafeClientOnce guards the lazy construction of
 	// redirectSafeClientValue below.
 	redirectSafeClientOnce sync.Once
@@ -168,6 +189,8 @@ func (c *Client) Clone() *Client {
 		Cache:          c.Cache,
 		ClientID:       c.ClientID,
 		TokenFetcher:   c.TokenFetcher,
+
+		BlockedRealmPrefixes: slices.Clone(c.BlockedRealmPrefixes),
 	}
 }
 
@@ -297,37 +320,25 @@ func (c *Client) cache() Cache {
 // that tests can inject a fake resolver.
 var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
-// cgnatPrefix is the shared address space for carrier-grade NAT (RFC 6598).
-// It is not covered by net.IP.IsPrivate, yet it hosts internal services such as
-// the Alibaba Cloud instance metadata service at 100.100.100.200.
-var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
-
-// isInternalAddr reports whether addr is a loopback, link-local, private,
-// unspecified, or carrier-grade NAT address.
-func isInternalAddr(addr netip.Addr) bool {
-	addr = addr.Unmap()
-	return addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
-		addr.IsPrivate() || addr.IsUnspecified() || cgnatPrefix.Contains(addr)
-}
-
 // validateRealm rejects bearer token realm URLs that would have the client
 // forward credentials to obviously unsafe destinations:
 //
 //   - schemes other than http or https,
 //   - http realms when the registry was contacted over https (TLS downgrade),
-//   - hosts that are, or resolve to, loopback, link-local, private,
-//     unspecified, or carrier-grade NAT (100.64.0.0/10) addresses (e.g. cloud
-//     instance metadata services such as 169.254.169.254 or
-//     100.100.100.200).
+//   - hosts that are, or resolve to, an address in one of the blocked
+//     prefixes (e.g. cloud instance metadata services such as
+//     169.254.169.254 or 100.100.100.200); see Client.BlockedRealmPrefixes.
+//     IPv4 addresses embedded in IPv4-mapped, NAT64 and 6to4 IPv6 addresses
+//     are matched as well.
 //
-// Cross-host realms with a public hostname are permitted, because the
-// distribution spec allows a separate token endpoint (e.g. Docker Hub's
-// auth.docker.io). When the registry itself is reached at the same hostname
-// as the realm, the address check is skipped so loopback and in-cluster
-// deployments continue to work.
+// Cross-host realms are permitted unless blocked, because the distribution
+// spec allows a separate token endpoint (e.g. Docker Hub's auth.docker.io).
+// When the registry itself is reached at the same hostname as the realm, the
+// address check is skipped so loopback and in-cluster deployments continue to
+// work. The scheme and downgrade checks always apply.
 //
 // A realm host that is not an IP literal is resolved with ctx, and the realm
-// is rejected if any of its A or AAAA records is an internal address. If the
+// is rejected if any of its A or AAAA records is in a blocked prefix. If the
 // lookup fails, the realm is allowed: behind an HTTP proxy the client may be
 // unable to resolve names that the proxy can, and a bogus name fails at dial
 // time anyway. The check does not defend against DNS rebinding, where the
@@ -339,7 +350,7 @@ func isInternalAddr(addr netip.Addr) bool {
 // References:
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func validateRealm(ctx context.Context, realm string, registryURL *url.URL) error {
+func validateRealm(ctx context.Context, realm string, registryURL *url.URL, blocked []netip.Prefix) error {
 	if realm == "" {
 		return nil
 	}
@@ -362,8 +373,8 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 		return nil
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		if isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, unspecified, or carrier-grade NAT address", host)
+		if p, ok := blockedRealmPrefix(addr, blocked); ok {
+			return fmt.Errorf("bearer realm host %q is in blocked prefix %s", host, p)
 		}
 		return nil
 	}
@@ -374,8 +385,11 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	}
 	for _, ipAddr := range addrs {
 		addr, ok := netip.AddrFromSlice(ipAddr.IP)
-		if ok && isInternalAddr(addr) {
-			return fmt.Errorf("bearer realm host %q resolves to %s, a loopback, link-local, private, unspecified, or carrier-grade NAT address", host, addr.Unmap())
+		if !ok {
+			continue
+		}
+		if p, ok := blockedRealmPrefix(addr, blocked); ok {
+			return fmt.Errorf("bearer realm host %q resolves to %s, which is in blocked prefix %s", host, addr.Unmap(), p)
 		}
 	}
 	return nil
@@ -387,14 +401,14 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 // keeps a validated realm from redirecting the token request to an internal
 // address or from https to http.
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client {
+func realmRedirectGuard(client *http.Client, registryURL *url.URL, blocked []netip.Prefix) *http.Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := validateRealm(req.Context(), req.URL.String(), registryURL); err != nil {
+		if err := validateRealm(req.Context(), req.URL.String(), registryURL, blocked); err != nil {
 			return fmt.Errorf("redirect of token request rejected: %w", err)
 		}
 		if checkRedirect != nil {
@@ -543,12 +557,13 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(ctx, realm, originalReq.URL); err != nil {
+		blocked := effectiveBlockedRealmPrefixes(c.BlockedRealmPrefixes)
+		if err := validateRealm(ctx, realm, originalReq.URL, blocked); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(withTokenRegistryURL(ctx, originalReq.URL), resource, realm, service, scopes)
+			return c.fetchBearerToken(withTokenRealmPolicy(ctx, originalReq.URL, blocked), resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)

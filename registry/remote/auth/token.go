@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -51,20 +52,29 @@ type TokenFetcher interface {
 	FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error)
 }
 
-// tokenRegistryURLKey is the context key for the URL the registry was
-// contacted at, carried from Client.Do to the token request.
-type tokenRegistryURLKey struct{}
+// tokenRealmPolicyKey is the context key for the realm policy of a token
+// request, carried from Client.Do to the token request.
+type tokenRealmPolicyKey struct{}
 
-// withTokenRegistryURL returns a copy of ctx carrying registryURL, against
-// which sendRequest validates every redirect hop of a token request.
-func withTokenRegistryURL(ctx context.Context, registryURL *url.URL) context.Context {
-	return context.WithValue(ctx, tokenRegistryURLKey{}, registryURL)
+// tokenRealmPolicy is what sendRequest needs to validate every redirect hop of
+// a token request: the URL the registry was contacted at and the blocked
+// address prefixes of the Client that issued the request.
+type tokenRealmPolicy struct {
+	registryURL *url.URL
+	blocked     []netip.Prefix
 }
 
-// tokenRegistryURL returns the registry URL carried by ctx, if any.
-func tokenRegistryURL(ctx context.Context) *url.URL {
-	registryURL, _ := ctx.Value(tokenRegistryURLKey{}).(*url.URL)
-	return registryURL
+// withTokenRealmPolicy returns a copy of ctx carrying registryURL and the
+// blocked prefixes, against which sendRequest validates every redirect hop of
+// a token request.
+func withTokenRealmPolicy(ctx context.Context, registryURL *url.URL, blocked []netip.Prefix) context.Context {
+	return context.WithValue(ctx, tokenRealmPolicyKey{}, tokenRealmPolicy{registryURL: registryURL, blocked: blocked})
+}
+
+// tokenRealmPolicyFrom returns the realm policy carried by ctx, if any.
+func tokenRealmPolicyFrom(ctx context.Context) (tokenRealmPolicy, bool) {
+	policy, ok := ctx.Value(tokenRealmPolicyKey{}).(tokenRealmPolicy)
+	return policy, ok && policy.registryURL != nil
 }
 
 // sendRequest adds the custom headers to the request and sends it using the
@@ -88,8 +98,8 @@ func sendRequest(client *http.Client, header http.Header, req *http.Request) (*h
 	for key, values := range header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	if registryURL := tokenRegistryURL(req.Context()); registryURL != nil {
-		client = realmRedirectGuard(client, registryURL)
+	if policy, ok := tokenRealmPolicyFrom(req.Context()); ok {
+		client = realmRedirectGuard(client, policy.registryURL, policy.blocked)
 	}
 	safeClient := redirectSafeClient(client)
 	checkRedirect := safeClient.CheckRedirect
